@@ -1,22 +1,20 @@
 (() => {
-  // ---- helpers ----
-  const isVisible = (el) => {
-    if (!el || el.type === "hidden") return false;
-    const cs = getComputedStyle(el);
-    if (cs.display === "none" || cs.visibility === "hidden") return false;
-    if (el.offsetParent === null && cs.position !== "fixed") return false;
-    // 隠しselect（select2 など）対策：幅高さ0は除外
-    const rect = el.getBoundingClientRect();
-    if (!rect.width && !rect.height) return false;
-    return true;
-  };
+  // ======= Settings =======
+  const DEDUPE_BY_NAME = true;   // true: 同名のラジオ/チェックは1行に集約, false: 全ノードを列挙
+  const INCLUDE_SYSTEM_FIELDS = true; // false: __RequestVerificationToken 等の内部用hiddenを除外
 
+  // ======= Helpers =======
   const clean = (s) =>
     (s || "")
-      .replace(/\s*[*＊]\s*$/, "")        // 必須のアスタリスク除去
-      .replace(/\s*[:：]\s*$/, "")        // 末尾コロン除去
       .replace(/\s+/g, " ")
+      .replace(/\s*[*＊:：]\s*$/, "") // 末尾の * や : を除去
       .trim();
+
+  const textOf = (el) => clean(el?.textContent || "");
+
+  const getByIdSafe = (id) => {
+    try { return document.getElementById(id); } catch { return null; }
+  };
 
   const labelFromTableHeader = (el) => {
     const cell = el.closest("td, th");
@@ -31,66 +29,100 @@
   };
 
   const findLabel = (el) => {
-    // 1) <label for="id">
+    // 0) ネイティブ関連付け
+    if (el.labels && el.labels.length) {
+      return clean([...el.labels].map(l => l.textContent).join(" "));
+    }
+    // 1) aria-label
+    const aria = el.getAttribute("aria-label");
+    if (aria) return clean(aria);
+    // 2) aria-labelledby
+    const labelledby = el.getAttribute("aria-labelledby");
+    if (labelledby) {
+      const t = labelledby
+        .split(/\s+/)
+        .map(id => textOf(getByIdSafe(id)))
+        .join(" ");
+      if (clean(t)) return clean(t);
+    }
+    // 3) <label for="...">
     if (el.id) {
-      const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      try {
+        const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+        if (lab) return clean(lab.textContent);
+      } catch {}
+    }
+    // 4) ラップされた<label>
+    const wrap = el.closest("label");
+    if (wrap) return clean(wrap.textContent.replace(el.innerText || "", ""));
+    // 5) 近傍の<label>
+    const container = el.closest(".form-group, .field, .control-group, tr, td, th, .row, div");
+    if (container) {
+      const lab = Array.from(container.querySelectorAll("label")).find(l => !l.contains(el));
       if (lab) return clean(lab.textContent);
     }
-    // 2) ラップされた<label>内
-    const wrapped = el.closest("label");
-    if (wrapped) return clean(wrapped.textContent.replace(el.innerText || "", ""));
-    // 3) 近傍コンテナにある<label>
-    const container = el.closest(".form-group, .field, .control-group, .row, div, td, th");
-    if (container) {
-      // 自分以外のlabelを優先
-      const labels = Array.from(container.querySelectorAll("label")).filter(l => !l.contains(el));
-      if (labels[0]) return clean(labels[0].textContent);
+    // 6) テーブルヘッダー
+    const th = labelFromTableHeader(el);
+    if (th) return th;
+    // 7) placeholder / title / data-*
+    const ph = el.getAttribute("placeholder") || el.getAttribute("title");
+    if (ph) return clean(ph);
+    for (const a of ["data-label", "data-name", "data-title", "name"]) {
+      const v = el.getAttribute(a);
+      if (v) return clean(v);
     }
-    // 4) 直前の兄弟<label>
-    let sib = el.previousElementSibling;
-    while (sib) {
-      if (sib.tagName.toLowerCase() === "label") return clean(sib.textContent);
-      sib = sib.previousElementSibling;
-    }
-    // 5) テーブル型の入力ならヘッダーから
-    return labelFromTableHeader(el);
+    return "";
   };
 
-  // ---- main ----
+  const isSystem = (el) => {
+    const key = (el.name || "" + " " + el.id || "").toLowerCase();
+    if (/__requestverificationtoken/.test(key)) return true;
+    if (/viewstate|eventvalidation/.test(key)) return true;
+    return false;
+  };
+
+  // ======= Main =======
   const form =
     document.querySelector('form[action*="/Items/Edit"]') ||
     document.querySelector("form") ||
     document;
 
-  const controls = Array.from(
-    form.querySelectorAll("input, select, textarea")
-  ).filter(isVisible);
+  const controls = Array.from(form.querySelectorAll("input, select, textarea")); // 非表示含む
 
-  // ラジオ/チェックボックスなど同名グループの重複を除く
   const seen = new Set();
   const rows = [];
   for (const el of controls) {
+    if (!INCLUDE_SYSTEM_FIELDS && isSystem(el)) continue;
+
     const controlName = el.name || el.id || "";
     if (!controlName) continue;
-    const key = `${el.tagName}/${controlName}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+
+    if (DEDUPE_BY_NAME) {
+      if (seen.has(controlName)) continue;
+      seen.add(controlName);
+    }
 
     const label = findLabel(el) || "(no label)";
+    const cs = getComputedStyle(el);
+    const visibility =
+      el.type === "hidden" ||
+      cs.display === "none" ||
+      cs.visibility === "hidden" ||
+      (el.offsetParent === null && cs.position !== "fixed")
+        ? "hidden"
+        : "visible";
+
     rows.push({
       control: controlName,
-      label: label,
+      label,
       tag: el.tagName.toLowerCase(),
-      type: el.type || ""
+      type: el.type || "",
+      id: el.id || "",
+      visibility
     });
   }
 
-  // 見やすく出力
-  console.table(rows, ["control", "label", "tag", "type"]);
-  console.log(
-    rows.map(r => `${r.control}\t${r.label}`).join("\n")
-  );
-
-  // 返り値としても確認できるように
+  console.table(rows, ["control", "label", "tag", "type", "visibility"]);
+  console.log(rows.map(r => `${r.control}\t${r.label}`).join("\n"));
   return rows;
 })();

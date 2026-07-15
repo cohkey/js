@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f3ea" />
+    <meta
+      name="description"
+      content="今日やることが、迷わず片づく。シンプルで使いやすいTODOリスト。"
+    />
+    <title>Tempo — やることを、気持ちよく。</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="sidebar">
+        <div class="brand-row">
+          <a class="brand" href="#" aria-label="Tempo ホーム">
+            <span class="brand-mark">t</span>
+            <span>tempo</span>
+          </a>
+          <button class="icon-button sidebar-close" id="sidebar-close" aria-label="メニューを閉じる">×</button>
+        </div>
+
+        <nav class="nav-list" aria-label="タスクの表示">
+          <button class="nav-item is-active" data-view="today">
+            <span class="nav-icon nav-icon--sun">☀</span><span>今日</span>
+            <span class="nav-count" data-count="today">0</span>
+          </button>
+          <button class="nav-item" data-view="all">
+            <span class="nav-icon nav-icon--inbox">⌂</span><span>すべて</span>
+            <span class="nav-count" data-count="all">0</span>
+          </button>
+          <button class="nav-item" data-view="upcoming">
+            <span class="nav-icon nav-icon--calendar">▦</span><span>予定</span>
+            <span class="nav-count" data-count="upcoming">0</span>
+          </button>
+          <button class="nav-item" data-view="completed">
+            <span class="nav-icon nav-icon--check">✓</span><span>完了</span>
+            <span class="nav-count" data-count="completed">0</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-section">
+          <div class="sidebar-section-heading">
+            <p class="sidebar-label">プロジェクト</p>
+            <button class="project-add-button" id="open-project-dialog" type="button" aria-label="プロジェクトを追加" aria-haspopup="dialog" title="プロジェクトを追加">＋</button>
+          </div>
+          <div id="project-navigation"></div>
+        </div>
+
+        <div class="sidebar-tip">
+          <span class="tip-spark">✦</span>
+          <p><strong>小さく始めよう</strong><br />まず1つ終わらせると、勢いがつきます。</p>
+        </div>
+      </aside>
+
+      <div class="sidebar-scrim" id="sidebar-scrim"></div>
+
+      <main class="main-content">
+        <header class="topbar">
+          <button class="icon-button menu-button" id="menu-button" aria-label="メニューを開く">☰</button>
+          <div class="search-wrap">
+            <span aria-hidden="true">⌕</span>
+            <input id="search-input" type="search" placeholder="タスクを検索" aria-label="タスクを検索" />
+            <kbd>Ctrl K</kbd>
+          </div>
+          <div class="topbar-actions">
+            <button class="icon-button" id="theme-toggle" aria-label="配色を切り替える">◐</button>
+            <div class="avatar" aria-label="ユーザー">YOU</div>
+          </div>
+        </header>
+
+        <section class="content-wrap">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow" id="date-label"></p>
+              <h1 id="view-title">今日</h1>
+              <p class="page-subtitle" id="view-subtitle">今日に集中しましょう。</p>
+            </div>
+            <div class="progress-ring" id="progress-ring" aria-label="今日の達成率">
+              <span id="progress-value">0%</span>
+            </div>
+          </div>
+
+          <form class="quick-add" id="task-form">
+            <button type="button" class="add-symbol" tabindex="-1" aria-hidden="true">＋</button>
+            <div class="quick-add-main">
+              <input
+                id="task-input"
+                type="text"
+                maxlength="120"
+                autocomplete="off"
+                placeholder="やることを入力して Enter"
+                aria-label="新しいタスク"
+                required
+              />
+              <div class="quick-options" id="quick-options">
+                <label class="option-chip">
+                  <span>▦</span>
+                  <select id="due-select" aria-label="期限">
+                    <option value="today">今日</option>
+                    <option value="tomorrow">明日</option>
+                    <option value="none">期限なし</option>
+                  </select>
+                </label>
+                <label class="option-chip">
+                  <span>●</span>
+                  <select id="project-select" aria-label="プロジェクト">
+                    <option>未分類</option>
+                    <option>個人</option>
+                    <option>仕事</option>
+                    <option>買い物</option>
+                  </select>
+                </label>
+                <label class="option-chip">
+                  <span>⚑</span>
+                  <select id="priority-select" aria-label="優先度">
+                    <option value="normal">通常</option>
+                    <option value="high">優先</option>
+                    <option value="low">低め</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div class="add-actions">
+              <button class="add-button" type="submit"><span>すぐ追加</span><small>いまの設定で保存</small></button>
+              <button class="detailed-add-button" id="open-detailed-add" type="button" aria-haspopup="dialog"><span>詳細設定して追加</span><small>タグ・工数・サブタスクも</small></button>
+            </div>
+          </form>
+
+          <div class="view-switcher" role="group" aria-label="表示方法">
+            <button class="view-mode-button is-active" type="button" data-mode="list"><span>☷</span> リスト</button>
+            <button class="view-mode-button" type="button" data-mode="board"><span>▦</span> カンバン</button>
+            <button class="view-mode-button" type="button" data-mode="timeline"><span>↔</span> タイムライン</button>
+          </div>
+
+          <div class="list-toolbar">
+            <p id="task-summary">0件のタスク</p>
+            <div class="toolbar-actions">
+              <label class="compact-select sort-control">
+                <span>第1条件</span>
+                <select id="sort-primary" aria-label="並べ替えの第1条件">
+                  <option value="due">期限が近い順</option>
+                  <option value="priority">優先度が高い順</option>
+                  <option value="status">進捗順</option>
+                  <option value="newest">新しい順</option>
+                  <option value="oldest">古い順</option>
+                </select>
+              </label>
+              <span class="sort-plus">＋</span>
+              <label class="compact-select sort-control">
+                <span>第2条件</span>
+                <select id="sort-secondary" aria-label="並べ替えの第2条件">
+                  <option value="priority">優先度が高い順</option>
+                  <option value="due">期限が近い順</option>
+                  <option value="status">進捗順</option>
+                  <option value="project">プロジェクト順</option>
+                  <option value="none">指定なし</option>
+                </select>
+              </label>
+              <button class="text-button" id="clear-completed" type="button">完了を整理</button>
+            </div>
+          </div>
+
+          <div class="task-list" id="task-list" aria-live="polite"></div>
+          <div class="kanban-board" id="kanban-board" aria-live="polite" hidden></div>
+          <div class="timeline-view" id="timeline-view" aria-live="polite" hidden></div>
+
+          <div class="empty-state" id="empty-state" hidden>
+            <div class="empty-illustration"><span>✓</span></div>
+            <h2>いい流れです。</h2>
+            <p>ここに表示するタスクはありません。<br />思いついたら上から追加しましょう。</p>
+            <button class="primary-soft-button" id="focus-add" type="button">タスクを追加する</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <template id="task-template">
+      <article class="task-card">
+        <button class="task-check" aria-label="完了にする"><span>✓</span></button>
+        <div class="task-body">
+          <p class="task-title"></p>
+          <div class="task-meta">
+            <span class="task-date"></span>
+            <span class="task-project-label"></span>
+            <span class="effort-label"></span>
+            <span class="subtask-label"></span>
+            <span class="priority-label" hidden>優先</span>
+          </div>
+          <div class="tag-row"></div>
+        </div>
+        <button class="star-button" aria-label="優先度を切り替える">☆</button>
+        <button class="more-button" aria-label="タスクを編集">•••</button>
+      </article>
+    </template>
+
+    <dialog class="task-dialog" id="task-dialog">
+      <form method="dialog" class="dialog-shell" id="edit-form">
+        <header class="dialog-header">
+          <div>
+            <p class="dialog-eyebrow" id="task-dialog-eyebrow">TASK DETAILS</p>
+            <h2 id="task-dialog-title">タスクを編集</h2>
+          </div>
+          <button class="dialog-close" type="button" data-close-dialog="task-dialog" aria-label="閉じる">×</button>
+        </header>
+
+        <input type="hidden" id="edit-id" />
+        <label class="field field--wide">
+          <span>タスク名</span>
+          <input id="edit-title" maxlength="120" required />
+        </label>
+
+        <div class="field-grid">
+          <label class="field">
+            <span>ステータス</span>
+            <select id="edit-status">
+              <option value="todo">未着手</option>
+              <option value="doing">進行中</option>
+              <option value="done">完了</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>優先度</span>
+            <select id="edit-priority">
+              <option value="high">高</option>
+              <option value="normal">通常</option>
+              <option value="low">低</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>期限</span>
+            <input id="edit-due" type="date" />
+          </label>
+          <label class="field">
+            <span>プロジェクト</span>
+            <select id="edit-project" aria-label="プロジェクトを選択"></select>
+          </label>
+          <label class="field">
+            <span>新しいプロジェクト（任意）</span>
+            <input id="edit-new-project" maxlength="30" placeholder="新規作成するときだけ入力" />
+          </label>
+          <label class="field">
+            <span>タグ（カンマ区切り）</span>
+            <input id="edit-tags" maxlength="80" placeholder="重要, 連絡" />
+          </label>
+        </div>
+
+        <div class="effort-panel">
+          <div class="effort-heading">
+            <div><span class="section-icon">◷</span><strong>工数管理</strong></div>
+            <span id="effort-balance"></span>
+          </div>
+          <div class="field-grid field-grid--effort">
+            <label class="field"><span>見積時間</span><div class="number-input"><input id="edit-estimate" type="number" min="0" max="999" step="0.5" /><b>時間</b></div></label>
+            <label class="field"><span>実績時間</span><div class="number-input"><input id="edit-actual" type="number" min="0" max="999" step="0.5" /><b>時間</b></div></label>
+          </div>
+        </div>
+
+        <section class="subtask-editor">
+          <div class="subtask-heading">
+            <div><span class="section-icon">☑</span><strong>サブタスク</strong></div>
+            <span id="subtask-progress">0 / 0</span>
+          </div>
+          <div id="subtask-list"></div>
+          <div class="subtask-add-row">
+            <input id="subtask-input" type="text" maxlength="80" placeholder="サブタスクを追加" />
+            <button id="add-subtask" type="button">追加</button>
+          </div>
+        </section>
+
+        <footer class="dialog-footer">
+          <button class="danger-button" id="delete-task" type="button">削除</button>
+          <div>
+            <button class="secondary-button" type="button" data-close-dialog="task-dialog">キャンセル</button>
+            <button class="save-button" id="save-task" type="submit" value="default">変更を保存</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="project-dialog" id="project-dialog">
+      <form method="dialog" class="project-dialog-shell" id="project-form">
+        <header class="dialog-header">
+          <div>
+            <p class="dialog-eyebrow">NEW PROJECT</p>
+            <h2>プロジェクトを追加</h2>
+          </div>
+          <button class="dialog-close" type="button" data-close-dialog="project-dialog" aria-label="閉じる">×</button>
+        </header>
+        <label class="field field--wide">
+          <span>プロジェクト名</span>
+          <input id="new-project-name" maxlength="30" autocomplete="off" placeholder="例：旅行の準備" required />
+        </label>
+        <p class="project-dialog-help">追加後、そのプロジェクトを開いた状態になります。</p>
+        <footer class="dialog-footer project-dialog-footer">
+          <span></span>
+          <div>
+            <button class="secondary-button" type="button" data-close-dialog="project-dialog">キャンセル</button>
+            <button class="save-button" type="submit" value="default">追加する</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <script src="task-core.js"></script>
+    <script src="script.js"></script>
+  </body>
+</html>

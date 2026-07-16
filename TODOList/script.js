@@ -4,7 +4,10 @@ const MODE_KEY = "tempo-view-mode";
 const SORT_PRIMARY_KEY = "tempo-sort-primary";
 const SORT_SECONDARY_KEY = "tempo-sort-secondary";
 const PROJECTS_KEY = "tempo-projects-v1";
-const { makeId, normalizeTask, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, closeDialog } = TempoCore;
+const {
+  makeId, normalizeTask, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, closeDialog,
+  CSV_FIELDS, parseCSV, autoMapHeaders, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
+} = TempoCore;
 
 const todayISO = () => {
   const date = new Date();
@@ -54,6 +57,8 @@ const state = {
   sortSecondary: localStorage.getItem(SORT_SECONDARY_KEY) || "priority",
   mode: localStorage.getItem(MODE_KEY) || "list",
   subtaskDraft: [],
+  csvParsed: null,
+  csvMapping: {},
 };
 
 const elements = {
@@ -103,6 +108,20 @@ const elements = {
   projectDialog: document.querySelector("#project-dialog"),
   projectForm: document.querySelector("#project-form"),
   newProjectName: document.querySelector("#new-project-name"),
+  csvFileInput: document.querySelector("#csv-file-input"),
+  jsonFileInput: document.querySelector("#json-file-input"),
+  csvImportDialog: document.querySelector("#csv-import-dialog"),
+  csvImportForm: document.querySelector("#csv-import-form"),
+  csvFileName: document.querySelector("#csv-file-name"),
+  csvFileMeta: document.querySelector("#csv-file-meta"),
+  csvMappingGrid: document.querySelector("#csv-mapping-grid"),
+  csvPreviewHead: document.querySelector("#csv-preview-head"),
+  csvPreviewBody: document.querySelector("#csv-preview-body"),
+  csvPreviewSummary: document.querySelector("#csv-preview-summary"),
+  csvImportMode: document.querySelector("#csv-import-mode"),
+  csvDuplicateMode: document.querySelector("#csv-duplicate-mode"),
+  csvImportError: document.querySelector("#csv-import-error"),
+  executeCsvImport: document.querySelector("#execute-csv-import"),
 };
 
 function saveTasks() {
@@ -361,6 +380,110 @@ function showToast(message) {
   elements.toast.classList.add("is-visible");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => elements.toast.classList.remove("is-visible"), 1800);
+}
+
+function downloadTextFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function refreshCsvPreview() {
+  elements.csvImportError.textContent = "";
+  elements.csvPreviewHead.replaceChildren();
+  elements.csvPreviewBody.replaceChildren();
+  if (!state.csvParsed) return;
+  const { tasks, skippedRows } = csvRowsToTasks(state.csvParsed, state.csvMapping);
+  const headers = ["タスク名", "状態", "優先度", "期限", "プロジェクト"];
+  const headerRow = document.createElement("tr");
+  headers.forEach((label) => { const th = document.createElement("th"); th.textContent = label; headerRow.append(th); });
+  elements.csvPreviewHead.append(headerRow);
+  const statusLabels = { todo: "未着手", doing: "進行中", done: "完了" };
+  const priorityLabels = { high: "高", normal: "通常", low: "低" };
+  tasks.slice(0, 5).forEach((task) => {
+    const row = document.createElement("tr");
+    [task.title, statusLabels[task.status], priorityLabels[task.priority], task.due || "期限なし", task.project].forEach((value) => {
+      const cell = document.createElement("td"); cell.textContent = value; cell.title = value; row.append(cell);
+    });
+    elements.csvPreviewBody.append(row);
+  });
+  elements.csvPreviewSummary.textContent = `${tasks.length}件${skippedRows.length ? `・空欄${skippedRows.length}行を除外` : ""}`;
+  const hasTitle = Number(state.csvMapping.title) >= 0;
+  elements.executeCsvImport.disabled = !hasTitle || !tasks.length;
+  if (!hasTitle) elements.csvImportError.textContent = "「タスク名」に使う列を選択してください。";
+}
+
+function renderCsvMapping() {
+  elements.csvMappingGrid.replaceChildren();
+  CSV_FIELDS.forEach((field) => {
+    const row = document.createElement("div");
+    row.className = "mapping-row";
+    const label = document.createElement("label");
+    label.textContent = field.label;
+    if (field.required) { const required = document.createElement("b"); required.textContent = " 必須"; label.append(required); }
+    const select = document.createElement("select");
+    select.dataset.field = field.key;
+    select.setAttribute("aria-label", `${field.label}に割り当てるCSV列`);
+    select.append(new Option("使用しない", "-1"));
+    state.csvParsed.headers.forEach((header, index) => select.append(new Option(header, String(index))));
+    select.value = String(state.csvMapping[field.key] ?? -1);
+    row.append(label, select);
+    elements.csvMappingGrid.append(row);
+  });
+  refreshCsvPreview();
+}
+
+async function prepareCsvImport(file) {
+  try {
+    const parsed = parseCSV(await file.text());
+    if (!parsed.headers.length || !parsed.rows.length) throw new Error("データ行が見つかりませんでした");
+    state.csvParsed = parsed;
+    state.csvMapping = autoMapHeaders(parsed.headers);
+    elements.csvFileName.textContent = file.name;
+    elements.csvFileMeta.textContent = `${parsed.rows.length}行・${parsed.headers.length}列`;
+    elements.csvImportError.textContent = "";
+    renderCsvMapping();
+    if (!elements.csvImportDialog.open) elements.csvImportDialog.showModal();
+  } catch (error) {
+    state.csvParsed = null;
+    showToast(`CSVを読み込めませんでした：${error.message}`);
+  }
+}
+
+function currentBackupSettings() {
+  return {
+    theme: document.body.classList.contains("is-dark") ? "dark" : "light",
+    mode: state.mode,
+    sortPrimary: state.sortPrimary,
+    sortSecondary: state.sortSecondary,
+  };
+}
+
+function applyBackupSettings(settings) {
+  if (settings.theme === "dark" || settings.theme === "light") {
+    document.body.classList.toggle("is-dark", settings.theme === "dark");
+    localStorage.setItem(THEME_KEY, settings.theme);
+  }
+  if (["list", "board", "timeline"].includes(settings.mode)) {
+    state.mode = settings.mode;
+    localStorage.setItem(MODE_KEY, settings.mode);
+  }
+  if (["due", "priority", "status", "newest", "oldest"].includes(settings.sortPrimary)) {
+    state.sortPrimary = settings.sortPrimary;
+    elements.sortPrimary.value = settings.sortPrimary;
+    localStorage.setItem(SORT_PRIMARY_KEY, settings.sortPrimary);
+  }
+  if (["priority", "due", "status", "project", "none"].includes(settings.sortSecondary)) {
+    state.sortSecondary = settings.sortSecondary;
+    elements.sortSecondary.value = settings.sortSecondary;
+    localStorage.setItem(SORT_SECONDARY_KEY, settings.sortSecondary);
+  }
 }
 
 function setView(view, project = null) {
@@ -632,6 +755,82 @@ elements.newProjectName.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || event.isComposing) return;
   event.preventDefault();
   elements.projectForm.requestSubmit();
+});
+
+document.querySelector("#csv-import-button").addEventListener("click", () => {
+  elements.csvFileInput.value = "";
+  elements.csvFileInput.click();
+});
+document.querySelector("#change-csv-file").addEventListener("click", () => {
+  elements.csvFileInput.value = "";
+  elements.csvFileInput.click();
+});
+elements.csvFileInput.addEventListener("change", () => {
+  const file = elements.csvFileInput.files?.[0];
+  if (file) prepareCsvImport(file);
+});
+elements.csvMappingGrid.addEventListener("change", (event) => {
+  const select = event.target.closest("select[data-field]");
+  if (!select) return;
+  state.csvMapping[select.dataset.field] = Number(select.value);
+  refreshCsvPreview();
+});
+elements.csvImportForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (!state.csvParsed || Number(state.csvMapping.title) < 0) return refreshCsvPreview();
+  const converted = csvRowsToTasks(state.csvParsed, state.csvMapping);
+  if (!converted.tasks.length) return refreshCsvPreview();
+  const replace = elements.csvImportMode.value === "replace";
+  if (replace && !confirm(`現在の${state.tasks.length}件を削除し、CSVのタスクに置き換えますか？`)) return;
+  const merged = mergeImportedTasks(state.tasks, converted.tasks, {
+    mode: replace ? "replace" : "append",
+    skipDuplicates: elements.csvDuplicateMode.value === "skip",
+  });
+  state.tasks = merged.tasks;
+  const importedProjects = converted.tasks.map((task) => task.project);
+  state.projects = replace
+    ? [...new Set(["未分類", "個人", "仕事", "買い物", ...importedProjects])]
+    : [...new Set([...state.projects, ...importedProjects])];
+  saveTasks();
+  saveProjects();
+  elements.csvImportDialog.close();
+  setView("all");
+  const skippedTotal = merged.skipped + converted.skippedRows.length;
+  showToast(`${merged.added}件を取り込みました${skippedTotal ? `（${skippedTotal}件スキップ）` : ""}`);
+});
+
+document.querySelector("#csv-export-button").addEventListener("click", () => {
+  const date = todayISO().replace(/-/g, "");
+  downloadTextFile(`tempo-tasks-${date}.csv`, tasksToCSV(state.tasks), "text/csv;charset=utf-8");
+  showToast(`${state.tasks.length}件をCSVへ出力しました`);
+});
+
+document.querySelector("#json-export-button").addEventListener("click", () => {
+  const date = todayISO().replace(/-/g, "");
+  downloadTextFile(`tempo-backup-${date}.json`, createBackup(state.tasks, state.projects, currentBackupSettings()), "application/json;charset=utf-8");
+  showToast("JSONバックアップを保存しました");
+});
+
+document.querySelector("#json-import-button").addEventListener("click", () => {
+  elements.jsonFileInput.value = "";
+  elements.jsonFileInput.click();
+});
+elements.jsonFileInput.addEventListener("change", async () => {
+  const file = elements.jsonFileInput.files?.[0];
+  if (!file) return;
+  try {
+    const backup = parseBackup(await file.text());
+    if (!confirm(`現在のデータを、バックアップの${backup.tasks.length}件に置き換えますか？`)) return;
+    state.tasks = backup.tasks;
+    state.projects = [...new Set(["未分類", "個人", "仕事", "買い物", ...backup.projects, ...backup.tasks.map((task) => task.project)])];
+    applyBackupSettings(backup.settings);
+    saveTasks();
+    saveProjects();
+    setView("all");
+    showToast(`${state.tasks.length}件をバックアップから復元しました`);
+  } catch (error) {
+    showToast(`JSONを復元できませんでした：${error.message}`);
+  }
 });
 
 document.addEventListener("click", (event) => {

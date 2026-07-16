@@ -55,6 +55,18 @@
           <div id="project-navigation"></div>
         </div>
 
+        <div class="sidebar-section data-section">
+          <p class="sidebar-label">データ</p>
+          <div class="data-actions">
+            <button type="button" id="csv-import-button"><span>⇧</span>CSV取込</button>
+            <button type="button" id="csv-export-button"><span>⇩</span>CSV出力</button>
+            <button type="button" id="json-export-button"><span>◇</span>JSON保存</button>
+            <button type="button" id="json-import-button"><span>◆</span>JSON復元</button>
+          </div>
+          <input id="csv-file-input" type="file" accept=".csv,text/csv" hidden />
+          <input id="json-file-input" type="file" accept=".json,application/json" hidden />
+        </div>
+
         <div class="sidebar-tip">
           <span class="tip-spark">✦</span>
           <p><strong>小さく始めよう</strong><br />まず1つ終わらせると、勢いがつきます。</p>
@@ -307,6 +319,73 @@
           <div>
             <button class="secondary-button" type="button" data-close-dialog="project-dialog">キャンセル</button>
             <button class="save-button" type="submit" value="default">追加する</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="import-dialog" id="csv-import-dialog">
+      <form method="dialog" class="import-dialog-shell" id="csv-import-form">
+        <header class="dialog-header">
+          <div>
+            <p class="dialog-eyebrow">IMPORT FROM EXCEL</p>
+            <h2>CSVを取り込む</h2>
+          </div>
+          <button class="dialog-close" type="button" data-close-dialog="csv-import-dialog" aria-label="閉じる">×</button>
+        </header>
+
+        <div class="import-file-summary">
+          <span class="import-file-icon">CSV</span>
+          <div><strong id="csv-file-name">ファイル未選択</strong><small id="csv-file-meta"></small></div>
+          <button type="button" id="change-csv-file">変更</button>
+        </div>
+
+        <div id="csv-import-content">
+          <div class="import-option-grid">
+            <label class="field">
+              <span>取り込み方法</span>
+              <select id="csv-import-mode">
+                <option value="append">現在のタスクへ追加</option>
+                <option value="replace">すべて置き換え</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>重複タスク</span>
+              <select id="csv-duplicate-mode">
+                <option value="skip">同じタスクはスキップ</option>
+                <option value="include">重複しても取り込む</option>
+              </select>
+            </label>
+          </div>
+
+          <section class="mapping-panel">
+            <div class="import-section-heading">
+              <div><span class="section-icon">↔</span><strong>列の割り当て</strong></div>
+              <small>自動判定済み。必要なら変更できます。</small>
+            </div>
+            <div class="mapping-grid" id="csv-mapping-grid"></div>
+          </section>
+
+          <section class="preview-panel">
+            <div class="import-section-heading">
+              <div><span class="section-icon">▦</span><strong>取り込みプレビュー</strong></div>
+              <small id="csv-preview-summary"></small>
+            </div>
+            <div class="csv-preview-scroll">
+              <table class="csv-preview-table">
+                <thead id="csv-preview-head"></thead>
+                <tbody id="csv-preview-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <p class="import-error" id="csv-import-error" role="alert"></p>
+        <footer class="dialog-footer">
+          <small class="import-note">Excelでは「CSV UTF-8」で保存すると確実です。</small>
+          <div>
+            <button class="secondary-button" type="button" data-close-dialog="csv-import-dialog">キャンセル</button>
+            <button class="save-button" id="execute-csv-import" type="submit">取り込む</button>
           </div>
         </footer>
       </form>

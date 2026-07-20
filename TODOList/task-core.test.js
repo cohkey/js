@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  normalizeTask, sortTasks, resolveProject, addProject, applyTaskDetails, closeDialog,
+  normalizeTask, sortTasks, resolveProject, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = require("./task-core.js");
 
@@ -44,6 +44,34 @@ test("優先度を第1条件、期限を第2条件として並べ替える", () 
     makeTask({ id: "high-today", due: "2026-07-16", priority: "high" }),
   ];
   assert.deepEqual(sortTasks(tasks, "priority", "due").map((task) => task.id), ["high-today", "high-tomorrow", "low-today"]);
+});
+
+test("テーブル編集でステータス・プロジェクト・タグを正規化する", () => {
+  const task = makeTask({ id: "table-edit", completedAt: null, tags: [] });
+  const completed = applyTableEdit(task, "status", "done", 12345);
+  assert.equal(completed.status, "done");
+  assert.equal(completed.completed, true);
+  assert.equal(completed.completedAt, 12345);
+
+  const projected = applyTableEdit(completed, "project", "  新規   案件  ");
+  assert.equal(projected.project, "新規 案件");
+
+  const tagged = applyTableEdit(projected, "tags", "重要, #連絡、重要");
+  assert.deepEqual(tagged.tags, ["重要", "連絡"]);
+});
+
+test("テーブル編集では空のタスク名と不正な選択値を採用しない", () => {
+  const task = makeTask({ id: "safe-edit", title: "残す名前", status: "doing", priority: "high" });
+  assert.equal(applyTableEdit(task, "title", "   ").title, "残す名前");
+  assert.equal(applyTableEdit(task, "status", "unknown").status, "doing");
+  assert.equal(applyTableEdit(task, "priority", "urgent").priority, "high");
+});
+
+test("テーブル編集で工数を0以上へ補正し期限を解除できる", () => {
+  const task = makeTask({ id: "effort-edit", due: "2026-07-21", estimate: 2, actual: 1 });
+  assert.equal(applyTableEdit(task, "estimate", "3.5").estimate, 3.5);
+  assert.equal(applyTableEdit(task, "actual", "-2").actual, 0);
+  assert.equal(applyTableEdit(task, "due", "").due, null);
 });
 
 test("同じ条件を2回指定しても安定した順序になる", () => {

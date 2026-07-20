@@ -149,6 +149,7 @@
 
           <div class="view-switcher" role="group" aria-label="表示方法">
             <button class="view-mode-button is-active" type="button" data-mode="list"><span>☷</span> リスト</button>
+            <button class="view-mode-button" type="button" data-mode="table"><span>▤</span> テーブル</button>
             <button class="view-mode-button" type="button" data-mode="board"><span>▦</span> カンバン</button>
             <button class="view-mode-button" type="button" data-mode="timeline"><span>↔</span> タイムライン</button>
           </div>
@@ -182,6 +183,7 @@
           </div>
 
           <div class="task-list" id="task-list" aria-live="polite"></div>
+          <div class="table-view" id="table-view" aria-live="polite" hidden></div>
           <div class="kanban-board" id="kanban-board" aria-live="polite" hidden></div>
           <div class="timeline-view" id="timeline-view" aria-live="polite" hidden></div>
 

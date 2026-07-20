@@ -269,6 +269,36 @@ body.is-dark .subtask-row { border-color: #3c3d38; }
 .view-mode-button.is-active { background: var(--surface-strong); color: var(--text); box-shadow: 0 4px 12px rgba(55,48,33,.08); }
 .view-mode-button span { font-size: 14px; }
 
+.table-view { margin-top: 14px; }
+.table-view:not([hidden]) { display: block; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-strong); box-shadow: 0 8px 24px rgba(57,48,33,.04); }
+.task-table { width: 100%; min-width: 1180px; border-collapse: separate; border-spacing: 0; font-size: 10px; }
+.task-table th { position: sticky; top: 0; z-index: 1; padding: 10px 9px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 9px; font-weight: 700; text-align: left; white-space: nowrap; }
+.task-table td { height: 50px; padding: 6px 7px; border-bottom: 1px solid var(--line); background: var(--surface-strong); vertical-align: middle; }
+.task-table tbody tr:last-child td { border-bottom: 0; }
+.task-table tbody tr:hover td { background: rgba(254,231,223,.2); }
+.task-table tbody tr.is-completed { opacity: .62; }
+.task-table tbody tr.is-completed .table-title-input { text-decoration: line-through; }
+.task-table tbody tr.is-overdue .table-date-input { border-color: rgba(220,82,61,.55); color: #b34332; }
+.table-check-column, .table-check-cell { width: 42px; text-align: center !important; }
+.table-complete-check { width: 17px; height: 17px; accent-color: var(--green); }
+.table-title-cell { width: 250px; }
+.table-field { height: 34px; min-width: 0; padding: 0 8px; border: 1px solid transparent; border-radius: 8px; outline: 0; background: transparent; color: var(--text); font: inherit; transition: .15s; }
+.table-field:hover { border-color: var(--line); background: var(--surface); }
+.table-field:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
+.table-title-input { width: 100%; min-width: 210px; font-size: 11px; font-weight: 650; }
+.table-select { width: 112px; cursor: pointer; }
+.table-date-input { width: 122px; }
+.table-tags-input { width: 140px; }
+.table-effort-cell { color: var(--muted); white-space: nowrap; }
+.table-hours-input { width: 48px; padding-inline: 4px; text-align: right; }
+.table-subtask-cell { min-width: 86px; color: var(--muted); }
+.table-subtask-progress { display: block; width: 66px; height: 3px; margin-top: 5px; overflow: hidden; border-radius: 4px; background: var(--line); }
+.table-subtask-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+.table-detail-button { height: 30px; padding: 0 9px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 9px; font-weight: 700; white-space: nowrap; }
+.table-detail-button:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+
 .tag-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .tag-row:empty { display: none; }
 .tag-pill { padding: 2px 7px; border-radius: 99px; background: #eeece6; color: #706d65; font-size: 9px; font-weight: 600; }
@@ -387,6 +417,11 @@ body.is-dark .subtask-row { border-color: #3c3d38; }
 
 body.is-dark .view-switcher { background: rgba(0,0,0,.12); }
 body.is-dark .view-mode-button.is-active { background: #393a36; }
+body.is-dark .table-scroll { border-color: #3b3c37; background: #30312e; }
+body.is-dark .task-table th { border-color: #3b3c37; background: #272825; }
+body.is-dark .task-table td { border-color: #3b3c37; background: #30312e; }
+body.is-dark .task-table tbody tr:hover td { background: #353630; }
+body.is-dark .table-field:hover, body.is-dark .table-field:focus { background: #272825; }
 body.is-dark .timeline-day.is-today { background: rgba(85,53,46,.38); }
 body.is-dark .effort-panel, body.is-dark .subtask-editor { background: #272825; }
 body.is-dark .priority-label { background: #55352e; color: #ff9c84; }
@@ -404,6 +439,7 @@ body.is-dark .csv-preview-table th { background: #30312d; }
 @media (max-width: 760px) {
   .view-switcher { width: 100%; }
   .view-mode-button { flex: 1; justify-content: center; padding-inline: 6px; }
+  .view-mode-button span { display: none; }
   .kanban-board { grid-template-columns: repeat(3, minmax(245px, 1fr)); }
   .field-grid { grid-template-columns: 1fr; }
   .field-grid--effort { grid-template-columns: 1fr 1fr; }

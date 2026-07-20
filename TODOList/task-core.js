@@ -79,6 +79,27 @@
     };
   }
 
+  function applyTableEdit(task, field, value, now = Date.now()) {
+    const editableFields = new Set(["title", "status", "priority", "due", "project", "tags", "estimate", "actual"]);
+    if (!editableFields.has(field)) return { ...task };
+    if (field === "title" && !String(value || "").trim()) return { ...task };
+    const details = {
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      due: task.due,
+      project: task.project,
+      tags: task.tags,
+      estimate: task.estimate,
+      actual: task.actual,
+      subtasks: task.subtasks,
+      [field]: value,
+    };
+    if (field === "status" && !["todo", "doing", "done"].includes(value)) details.status = task.status;
+    if (field === "priority" && !["low", "normal", "high"].includes(value)) details.priority = task.priority;
+    return applyTaskDetails(task, details, now);
+  }
+
   function closeDialog(dialog) {
     if (!dialog || !dialog.open || typeof dialog.close !== "function") return false;
     dialog.close();
@@ -237,7 +258,7 @@
   }
 
   return {
-    makeId, normalizeTask, compareBy, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, closeDialog,
+    makeId, normalizeTask, compareBy, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
     CSV_FIELDS, parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
   };
 });

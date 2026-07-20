@@ -80,6 +80,23 @@ test("複合並び替えの2つの選択欄がある", () => {
   assert.match(script, /sortTasks\(filtered, state\.sortPrimary, state\.sortSecondary\)/);
 });
 
+test("テーブル表示は主要項目のインライン編集と詳細画面に対応する", () => {
+  assert.match(html, /data-mode="table"/);
+  assert.match(html, /id="table-view"/);
+  assert.match(script, /function renderTable\(tasks\)/);
+  assert.match(script, /elements\.table\.addEventListener\("change"/);
+  assert.match(script, /applyTableEdit\(task, nextField, nextValue\)/);
+  assert.match(script, /dataset\.action = "detail"/);
+  assert.match(script, /\["list", "table", "board", "timeline"\]/);
+});
+
+test("テーブル表示は横スクロール・固定見出し・ダークモードに対応する", () => {
+  assert.match(css, /\.table-scroll \{[^}]*overflow-x: auto/);
+  assert.match(css, /\.task-table th \{[^}]*position: sticky/);
+  assert.match(css, /body\.is-dark \.task-table td/);
+  assert.match(css, /\.task-table \{[^}]*min-width: 1180px/);
+});
+
 test("ダークモードにタスクとタグ専用の配色がある", () => {
   assert.match(css, /body\.is-dark \.task-card \{/);
   assert.match(css, /body\.is-dark \.tag-pill \{/);

@@ -5,7 +5,7 @@ const SORT_PRIMARY_KEY = "tempo-sort-primary";
 const SORT_SECONDARY_KEY = "tempo-sort-secondary";
 const PROJECTS_KEY = "tempo-projects-v1";
 const {
-  makeId, normalizeTask, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, closeDialog,
+  makeId, normalizeTask, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   CSV_FIELDS, parseCSV, autoMapHeaders, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = TempoCore;
 
@@ -65,6 +65,7 @@ const elements = {
   form: document.querySelector("#task-form"),
   input: document.querySelector("#task-input"),
   list: document.querySelector("#task-list"),
+  table: document.querySelector("#table-view"),
   board: document.querySelector("#kanban-board"),
   timeline: document.querySelector("#timeline-view"),
   template: document.querySelector("#task-template"),
@@ -203,6 +204,116 @@ function renderList(tasks) {
   });
 }
 
+function makeTableSelect(field, value, options, label) {
+  const select = document.createElement("select");
+  select.className = "table-field table-select";
+  select.dataset.field = field;
+  select.setAttribute("aria-label", label);
+  options.forEach(([optionValue, optionLabel]) => {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = optionLabel;
+    option.selected = optionValue === value;
+    select.append(option);
+  });
+  return select;
+}
+
+function makeTableInput(field, value, type, label, className = "") {
+  const input = document.createElement("input");
+  input.className = `table-field ${className}`.trim();
+  input.dataset.field = field;
+  input.type = type;
+  input.value = value ?? "";
+  input.setAttribute("aria-label", label);
+  if (type === "number") {
+    input.min = "0";
+    input.step = "0.25";
+  }
+  return input;
+}
+
+function renderTable(tasks) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "table-scroll";
+  const table = document.createElement("table");
+  table.className = "task-table";
+  table.innerHTML = `<thead><tr><th class="table-check-column">完了</th><th>タスク名</th><th>プロジェクト</th><th>ステータス</th><th>優先度</th><th>期限</th><th>タグ</th><th>工数（実績 / 見積）</th><th>サブタスク</th><th><span class="visually-hidden">操作</span></th></tr></thead>`;
+  const body = document.createElement("tbody");
+  const projects = getProjects();
+  tasks.forEach((task) => {
+    const row = document.createElement("tr");
+    row.dataset.id = task.id;
+    row.classList.toggle("is-completed", task.status === "done");
+    row.classList.toggle("is-overdue", Boolean(task.due && task.due < todayISO() && task.status !== "done"));
+
+    const checkCell = document.createElement("td");
+    checkCell.className = "table-check-cell";
+    const check = document.createElement("input");
+    check.type = "checkbox";
+    check.className = "table-complete-check";
+    check.dataset.field = "completed";
+    check.checked = task.status === "done";
+    check.setAttribute("aria-label", task.status === "done" ? `「${task.title}」を未完了に戻す` : `「${task.title}」を完了にする`);
+    checkCell.append(check);
+
+    const titleCell = document.createElement("td");
+    titleCell.className = "table-title-cell";
+    titleCell.append(makeTableInput("title", task.title, "text", `${task.title}のタスク名`, "table-title-input"));
+
+    const projectCell = document.createElement("td");
+    projectCell.append(makeTableSelect("project", task.project, projects.map((project) => [project, project]), `${task.title}のプロジェクト`));
+
+    const statusCell = document.createElement("td");
+    statusCell.append(makeTableSelect("status", task.status, [["todo", "未着手"], ["doing", "進行中"], ["done", "完了"]], `${task.title}のステータス`));
+
+    const priorityCell = document.createElement("td");
+    priorityCell.append(makeTableSelect("priority", task.priority, [["high", "優先"], ["normal", "通常"], ["low", "低め"]], `${task.title}の優先度`));
+
+    const dueCell = document.createElement("td");
+    dueCell.append(makeTableInput("due", task.due || "", "date", `${task.title}の期限`, "table-date-input"));
+
+    const tagsCell = document.createElement("td");
+    tagsCell.append(makeTableInput("tags", task.tags.join(", "), "text", `${task.title}のタグ`, "table-tags-input"));
+
+    const effortCell = document.createElement("td");
+    effortCell.className = "table-effort-cell";
+    effortCell.append(
+      makeTableInput("actual", task.actual || "", "number", `${task.title}の実績工数`, "table-hours-input"),
+      document.createTextNode(" / "),
+      makeTableInput("estimate", task.estimate || "", "number", `${task.title}の見積工数`, "table-hours-input"),
+    );
+
+    const completedSubtasks = task.subtasks.filter((item) => item.completed).length;
+    const subtaskCell = document.createElement("td");
+    subtaskCell.className = "table-subtask-cell";
+    const subtaskText = document.createElement("span");
+    subtaskText.textContent = task.subtasks.length ? `${completedSubtasks} / ${task.subtasks.length}` : "—";
+    subtaskCell.append(subtaskText);
+    if (task.subtasks.length) {
+      const progress = document.createElement("span");
+      progress.className = "table-subtask-progress";
+      progress.innerHTML = `<span style="width:${Math.round((completedSubtasks / task.subtasks.length) * 100)}%"></span>`;
+      subtaskCell.append(progress);
+    }
+
+    const actionCell = document.createElement("td");
+    const detailButton = document.createElement("button");
+    detailButton.type = "button";
+    detailButton.className = "table-detail-button";
+    detailButton.dataset.action = "detail";
+    detailButton.textContent = "詳細";
+    detailButton.setAttribute("aria-label", `「${task.title}」の詳細を開く`);
+    actionCell.append(detailButton);
+
+    row.append(checkCell, titleCell, projectCell, statusCell, priorityCell, dueCell, tagsCell, effortCell, subtaskCell, actionCell);
+    body.append(row);
+  });
+  table.append(body);
+  wrapper.append(table);
+  elements.table.replaceChildren(wrapper);
+}
+
 function renderBoard() {
   const tasks = getVisibleTasks(true);
   const columns = [
@@ -295,10 +406,12 @@ function renderTimeline() {
 function render() {
   const listTasks = getVisibleTasks(false);
   elements.list.hidden = state.mode !== "list";
+  elements.table.hidden = state.mode !== "table";
   elements.board.hidden = state.mode !== "board";
   elements.timeline.hidden = state.mode !== "timeline";
   let visibleCount = listTasks.length;
   if (state.mode === "list") renderList(listTasks);
+  if (state.mode === "table") renderTable(listTasks);
   if (state.mode === "board") visibleCount = renderBoard();
   if (state.mode === "timeline") visibleCount = renderTimeline();
   elements.empty.hidden = visibleCount !== 0 || state.mode === "timeline";
@@ -470,7 +583,7 @@ function applyBackupSettings(settings) {
     document.body.classList.toggle("is-dark", settings.theme === "dark");
     localStorage.setItem(THEME_KEY, settings.theme);
   }
-  if (["list", "board", "timeline"].includes(settings.mode)) {
+  if (["list", "table", "board", "timeline"].includes(settings.mode)) {
     state.mode = settings.mode;
     localStorage.setItem(MODE_KEY, settings.mode);
   }
@@ -632,6 +745,41 @@ elements.list.addEventListener("click", (event) => {
     saveTasks(); render();
   } else {
     openTaskDialog(task.id);
+  }
+});
+
+elements.table.addEventListener("click", (event) => {
+  const detailButton = event.target.closest("[data-action='detail']");
+  const row = event.target.closest("tr[data-id]");
+  if (detailButton && row) openTaskDialog(row.dataset.id);
+});
+
+elements.table.addEventListener("change", (event) => {
+  const field = event.target.dataset.field;
+  const row = event.target.closest("tr[data-id]");
+  const task = state.tasks.find((item) => item.id === row?.dataset.id);
+  if (!field || !task) return;
+  const nextField = field === "completed" ? "status" : field;
+  const nextValue = field === "completed" ? (event.target.checked ? "done" : "todo") : event.target.value;
+  const updated = applyTableEdit(task, nextField, nextValue);
+  if (field === "title" && updated.title === task.title && !String(nextValue).trim()) {
+    render();
+    return showToast("タスク名は空にできません");
+  }
+  Object.assign(task, updated);
+  if (nextField === "project" && !state.projects.includes(task.project)) {
+    state.projects.push(task.project);
+    saveProjects();
+  }
+  saveTasks();
+  render();
+  showToast("テーブルの変更を保存しました");
+});
+
+elements.table.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && event.target.matches("input.table-field")) {
+    event.preventDefault();
+    event.target.blur();
   }
 });
 

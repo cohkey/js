@@ -45,6 +45,10 @@
             <span class="nav-icon nav-icon--check">✓</span><span>完了</span>
             <span class="nav-count" data-count="completed">0</span>
           </button>
+          <button class="nav-item" data-view="trash">
+            <span class="nav-icon nav-icon--trash">♲</span><span>ゴミ箱</span>
+            <span class="nav-count" data-count="trash">0</span>
+          </button>
         </nav>
 
         <div class="sidebar-section">
@@ -53,6 +57,14 @@
             <button class="project-add-button" id="open-project-dialog" type="button" aria-label="プロジェクトを追加" aria-haspopup="dialog" title="プロジェクトを追加">＋</button>
           </div>
           <div id="project-navigation"></div>
+        </div>
+
+        <div class="sidebar-section filter-section">
+          <div class="sidebar-section-heading">
+            <p class="sidebar-label">保存フィルター</p>
+            <button class="project-add-button" id="open-filter-dialog" type="button" aria-label="フィルターを追加" aria-haspopup="dialog" title="フィルターを追加">＋</button>
+          </div>
+          <div id="filter-navigation"></div>
         </div>
 
         <div class="sidebar-section data-section">
@@ -147,14 +159,14 @@
             </div>
           </form>
 
-          <div class="view-switcher" role="group" aria-label="表示方法">
+          <div class="view-switcher" id="view-switcher" role="group" aria-label="表示方法">
             <button class="view-mode-button is-active" type="button" data-mode="list"><span>☷</span> リスト</button>
             <button class="view-mode-button" type="button" data-mode="table"><span>▤</span> テーブル</button>
             <button class="view-mode-button" type="button" data-mode="board"><span>▦</span> カンバン</button>
             <button class="view-mode-button" type="button" data-mode="timeline"><span>↔</span> タイムライン</button>
           </div>
 
-          <div class="list-toolbar">
+          <div class="list-toolbar" id="list-toolbar">
             <p id="task-summary">0件のタスク</p>
             <div class="toolbar-actions">
               <label class="compact-select sort-control">
@@ -197,7 +209,7 @@
       </main>
     </div>
 
-    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"><span id="toast-message"></span><button id="undo-button" type="button" hidden>元に戻す</button></div>
 
     <template id="task-template">
       <article class="task-card">
@@ -208,6 +220,7 @@
             <span class="task-date"></span>
             <span class="task-project-label"></span>
             <span class="status-label"></span>
+            <span class="repeat-label" hidden></span>
             <span class="effort-label"></span>
             <span class="subtask-label"></span>
             <span class="priority-label" hidden>優先</span>
@@ -268,6 +281,16 @@
             <span>タグ（カンマ区切り）</span>
             <input id="edit-tags" maxlength="80" placeholder="重要, 連絡" />
           </label>
+          <label class="field">
+            <span>繰り返し</span>
+            <select id="edit-repeat">
+              <option value="none">繰り返さない</option>
+              <option value="daily">毎日</option>
+              <option value="weekdays">平日のみ</option>
+              <option value="weekly">毎週</option>
+              <option value="monthly">毎月</option>
+            </select>
+          </label>
         </div>
 
         <div class="effort-panel">
@@ -298,6 +321,37 @@
           <div>
             <button class="secondary-button" type="button" data-close-dialog="task-dialog">キャンセル</button>
             <button class="save-button" id="save-task" type="submit" value="default">変更を保存</button>
+          </div>
+        </footer>
+      </form>
+    </dialog>
+
+    <dialog class="project-dialog filter-dialog" id="filter-dialog">
+      <form method="dialog" class="project-dialog-shell" id="filter-form">
+        <header class="dialog-header">
+          <div>
+            <p class="dialog-eyebrow">SAVED FILTER</p>
+            <h2>フィルターを保存</h2>
+          </div>
+          <button class="dialog-close" type="button" data-close-dialog="filter-dialog" aria-label="閉じる">×</button>
+        </header>
+        <label class="field field--wide">
+          <span>フィルター名</span>
+          <input id="filter-name" maxlength="30" placeholder="例：今週の重要タスク" required />
+        </label>
+        <div class="field-grid filter-field-grid">
+          <label class="field"><span>プロジェクト</span><select id="filter-project"></select></label>
+          <label class="field"><span>ステータス</span><select id="filter-status"><option value="any">すべて</option><option value="todo">未着手</option><option value="doing">進行中</option><option value="done">完了</option></select></label>
+          <label class="field"><span>優先度</span><select id="filter-priority"><option value="any">すべて</option><option value="high">高</option><option value="normal">通常</option><option value="low">低</option></select></label>
+          <label class="field"><span>期限</span><select id="filter-due"><option value="any">すべて</option><option value="overdue">期限切れ</option><option value="today">今日</option><option value="week">今後7日</option><option value="none">期限なし</option></select></label>
+          <label class="field"><span>タグ</span><input id="filter-tag" maxlength="30" placeholder="例：重要" /></label>
+        </div>
+        <p class="project-dialog-help">指定した条件はすべて組み合わせて絞り込みます。</p>
+        <footer class="dialog-footer project-dialog-footer">
+          <span></span>
+          <div>
+            <button class="secondary-button" type="button" data-close-dialog="filter-dialog">キャンセル</button>
+            <button class="save-button" type="submit" value="default">保存する</button>
           </div>
         </footer>
       </form>

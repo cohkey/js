@@ -21,7 +21,74 @@
       : [],
     createdAt: task.createdAt || Date.now(),
     completedAt: task.completedAt || null,
+    repeat: ["daily", "weekdays", "weekly", "monthly"].includes(task.repeat) ? task.repeat : "none",
+    deletedAt: task.deletedAt || null,
   });
+
+  function nextRecurringDue(due, repeat, today = new Date().toISOString().slice(0, 10)) {
+    if (!["daily", "weekdays", "weekly", "monthly"].includes(repeat)) return null;
+    const source = due && due > today ? due : today;
+    const date = new Date(`${source}T12:00:00`);
+    if (repeat === "daily") date.setDate(date.getDate() + 1);
+    if (repeat === "weekly") date.setDate(date.getDate() + 7);
+    if (repeat === "weekdays") {
+      do date.setDate(date.getDate() + 1); while ([0, 6].includes(date.getDay()));
+    }
+    if (repeat === "monthly") {
+      const originalDay = date.getDate();
+      date.setDate(1);
+      date.setMonth(date.getMonth() + 1);
+      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+      date.setDate(Math.min(originalDay, lastDay));
+    }
+    return date.toISOString().slice(0, 10);
+  }
+
+  function createNextRecurringTask(task, today, now = Date.now()) {
+    const due = nextRecurringDue(task.due, task.repeat, today);
+    if (!due) return null;
+    return normalizeTask({
+      ...task,
+      id: makeId(),
+      due,
+      status: "todo",
+      completed: false,
+      completedAt: null,
+      actual: 0,
+      subtasks: task.subtasks.map((item) => ({ ...item, id: makeId(), completed: false })),
+      createdAt: now,
+    });
+  }
+
+  function normalizeSavedFilter(filter) {
+    const dueValues = ["any", "overdue", "today", "week", "none"];
+    return {
+      id: filter.id || makeId(),
+      name: String(filter.name || "").trim().slice(0, 30),
+      project: normalizeProjectName(filter.project) || "any",
+      status: ["any", "todo", "doing", "done"].includes(filter.status) ? filter.status : "any",
+      priority: ["any", "high", "normal", "low"].includes(filter.priority) ? filter.priority : "any",
+      due: dueValues.includes(filter.due) ? filter.due : "any",
+      tag: String(filter.tag || "").trim().replace(/^#/, "").slice(0, 30),
+    };
+  }
+
+  function matchesSavedFilter(task, filter, today) {
+    if (!filter) return true;
+    if (filter.project !== "any" && task.project !== filter.project) return false;
+    if (filter.status !== "any" && task.status !== filter.status) return false;
+    if (filter.priority !== "any" && task.priority !== filter.priority) return false;
+    if (filter.tag && !task.tags.includes(filter.tag)) return false;
+    if (filter.due === "overdue" && (!task.due || task.due >= today || task.status === "done")) return false;
+    if (filter.due === "today" && task.due !== today) return false;
+    if (filter.due === "week") {
+      const end = new Date(`${today}T12:00:00`);
+      end.setDate(end.getDate() + 7);
+      if (!task.due || task.due < today || task.due > end.toISOString().slice(0, 10)) return false;
+    }
+    if (filter.due === "none" && task.due) return false;
+    return true;
+  }
 
   function compareBy(taskA, taskB, condition) {
     const priorityScore = { high: 0, normal: 1, low: 2 };
@@ -76,11 +143,12 @@
       estimate: Math.max(0, Number(details.estimate) || 0),
       actual: Math.max(0, Number(details.actual) || 0),
       subtasks: Array.isArray(details.subtasks) ? details.subtasks.map((item) => ({ ...item })) : [],
+      repeat: ["daily", "weekdays", "weekly", "monthly"].includes(details.repeat) ? details.repeat : "none",
     };
   }
 
   function applyTableEdit(task, field, value, now = Date.now()) {
-    const editableFields = new Set(["title", "status", "priority", "due", "project", "tags", "estimate", "actual"]);
+    const editableFields = new Set(["title", "status", "priority", "due", "project", "tags", "estimate", "actual", "repeat"]);
     if (!editableFields.has(field)) return { ...task };
     if (field === "title" && !String(value || "").trim()) return { ...task };
     const details = {
@@ -93,10 +161,12 @@
       estimate: task.estimate,
       actual: task.actual,
       subtasks: task.subtasks,
+      repeat: task.repeat,
       [field]: value,
     };
     if (field === "status" && !["todo", "doing", "done"].includes(value)) details.status = task.status;
     if (field === "priority" && !["low", "normal", "high"].includes(value)) details.priority = task.priority;
+    if (field === "repeat" && !["none", "daily", "weekdays", "weekly", "monthly"].includes(value)) details.repeat = task.repeat;
     return applyTaskDetails(task, details, now);
   }
 
@@ -258,7 +328,8 @@
   }
 
   return {
-    makeId, normalizeTask, compareBy, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+    makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, normalizeSavedFilter, matchesSavedFilter,
+    compareBy, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
     CSV_FIELDS, parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
   };
 });

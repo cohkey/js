@@ -4,8 +4,11 @@ const MODE_KEY = "tempo-view-mode";
 const SORT_PRIMARY_KEY = "tempo-sort-primary";
 const SORT_SECONDARY_KEY = "tempo-sort-secondary";
 const PROJECTS_KEY = "tempo-projects-v1";
+const TRASH_KEY = "tempo-trash-v1";
+const FILTERS_KEY = "tempo-filters-v1";
 const {
-  makeId, normalizeTask, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+  makeId, normalizeTask, createNextRecurringTask, normalizeSavedFilter, matchesSavedFilter,
+  sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   CSV_FIELDS, parseCSV, autoMapHeaders, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = TempoCore;
 
@@ -45,13 +48,25 @@ function loadProjects(tasks) {
   }
 }
 
+function loadCollection(key, mapper) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(key));
+    return Array.isArray(saved) ? saved.map(mapper) : [];
+  } catch {
+    return [];
+  }
+}
+
 const loadedTasks = loadTasks();
 
 const state = {
   tasks: loadedTasks,
+  trash: loadCollection(TRASH_KEY, normalizeTask),
+  savedFilters: loadCollection(FILTERS_KEY, normalizeSavedFilter).filter((filter) => filter.name),
   projects: loadProjects(loadedTasks),
   view: "today",
   activeProject: null,
+  activeFilterId: null,
   search: "",
   sortPrimary: localStorage.getItem(SORT_PRIMARY_KEY) || "due",
   sortSecondary: localStorage.getItem(SORT_SECONDARY_KEY) || "priority",
@@ -60,6 +75,9 @@ const state = {
   csvParsed: null,
   csvMapping: {},
 };
+
+const undoStack = [];
+let savedTaskSnapshot = JSON.stringify({ tasks: state.tasks, trash: state.trash });
 
 const elements = {
   form: document.querySelector("#task-form"),
@@ -83,6 +101,10 @@ const elements = {
   progress: document.querySelector("#progress-ring"),
   progressValue: document.querySelector("#progress-value"),
   toast: document.querySelector("#toast"),
+  toastMessage: document.querySelector("#toast-message"),
+  undoButton: document.querySelector("#undo-button"),
+  viewSwitcher: document.querySelector("#view-switcher"),
+  listToolbar: document.querySelector("#list-toolbar"),
   sidebar: document.querySelector("#sidebar"),
   scrim: document.querySelector("#sidebar-scrim"),
   projectNavigation: document.querySelector("#project-navigation"),
@@ -98,6 +120,7 @@ const elements = {
   editProject: document.querySelector("#edit-project"),
   editNewProject: document.querySelector("#edit-new-project"),
   editTags: document.querySelector("#edit-tags"),
+  editRepeat: document.querySelector("#edit-repeat"),
   editEstimate: document.querySelector("#edit-estimate"),
   editActual: document.querySelector("#edit-actual"),
   effortBalance: document.querySelector("#effort-balance"),
@@ -123,14 +146,35 @@ const elements = {
   csvDuplicateMode: document.querySelector("#csv-duplicate-mode"),
   csvImportError: document.querySelector("#csv-import-error"),
   executeCsvImport: document.querySelector("#execute-csv-import"),
+  filterNavigation: document.querySelector("#filter-navigation"),
+  filterDialog: document.querySelector("#filter-dialog"),
+  filterForm: document.querySelector("#filter-form"),
+  filterName: document.querySelector("#filter-name"),
+  filterProject: document.querySelector("#filter-project"),
+  filterStatus: document.querySelector("#filter-status"),
+  filterPriority: document.querySelector("#filter-priority"),
+  filterDue: document.querySelector("#filter-due"),
+  filterTag: document.querySelector("#filter-tag"),
 };
 
-function saveTasks() {
+function saveTasks({ recordUndo = true } = {}) {
+  const nextSnapshot = JSON.stringify({ tasks: state.tasks, trash: state.trash });
+  if (recordUndo && nextSnapshot !== savedTaskSnapshot) {
+    undoStack.push(savedTaskSnapshot);
+    if (undoStack.length > 20) undoStack.shift();
+  }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tasks));
+  localStorage.setItem(TRASH_KEY, JSON.stringify(state.trash));
+  savedTaskSnapshot = nextSnapshot;
+  elements.undoButton.hidden = undoStack.length === 0;
 }
 
 function saveProjects() {
   localStorage.setItem(PROJECTS_KEY, JSON.stringify(state.projects));
+}
+
+function saveFilters() {
+  localStorage.setItem(FILTERS_KEY, JSON.stringify(state.savedFilters));
 }
 
 function formatDate(iso) {
@@ -164,15 +208,20 @@ function dueTone(due, status = "todo") {
 
 function matchesCommonFilters(task) {
   if (state.activeProject && task.project !== state.activeProject) return false;
+  const savedFilter = state.savedFilters.find((filter) => filter.id === state.activeFilterId);
+  if (savedFilter && !matchesSavedFilter(task, savedFilter, todayISO())) return false;
   const query = state.search.toLowerCase();
   return !query || [task.title, task.project, ...task.tags].some((value) => String(value).toLowerCase().includes(query));
 }
 
 function getVisibleTasks(includeDone = false) {
   const today = todayISO();
-  const filtered = state.tasks
+  const source = state.view === "trash" ? state.trash : state.tasks;
+  const filtered = source
     .filter((task) => {
       if (!matchesCommonFilters(task)) return false;
+      if (state.view === "trash") return true;
+      if (state.activeFilterId) return true;
       if (state.view === "today" && (!task.due || task.due > today || (!includeDone && task.status === "done"))) return false;
       if (state.view === "all" && !includeDone && task.status === "done") return false;
       if (state.view === "upcoming" && (task.status === "done" || !task.due || task.due <= today)) return false;
@@ -197,6 +246,38 @@ function makeTagRow(tags) {
 
 function renderList(tasks) {
   elements.list.replaceChildren();
+  if (state.view === "trash") {
+    tasks.forEach((task) => {
+      const card = document.createElement("article");
+      card.className = "task-card trash-card";
+      card.dataset.id = task.id;
+      const body = document.createElement("div");
+      body.className = "task-body";
+      const title = document.createElement("p");
+      title.className = "task-title";
+      title.textContent = task.title;
+      const meta = document.createElement("div");
+      meta.className = "task-meta";
+      meta.textContent = `${task.project} · ${task.deletedAt ? new Intl.DateTimeFormat("ja-JP", { month: "short", day: "numeric" }).format(new Date(task.deletedAt)) : "削除済み"}`;
+      body.append(title, meta);
+      const actions = document.createElement("div");
+      actions.className = "trash-actions";
+      const restore = document.createElement("button");
+      restore.type = "button";
+      restore.dataset.trashAction = "restore";
+      restore.textContent = "復元";
+      restore.setAttribute("aria-label", `「${task.title}」を復元`);
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.dataset.trashAction = "delete";
+      remove.textContent = "完全削除";
+      remove.setAttribute("aria-label", `「${task.title}」を完全に削除`);
+      actions.append(restore, remove);
+      card.append(body, actions);
+      elements.list.append(card);
+    });
+    return;
+  }
   tasks.forEach((task) => {
     const card = elements.template.content.firstElementChild.cloneNode(true);
     const completedSubtasks = task.subtasks.filter((item) => item.completed).length;
@@ -223,6 +304,9 @@ function renderList(tasks) {
     priorityLabel.textContent = { high: "高", normal: "通常", low: "低" }[task.priority];
     priorityLabel.dataset.value = task.priority;
     priorityLabel.hidden = false;
+    const repeatLabel = card.querySelector(".repeat-label");
+    repeatLabel.textContent = { daily: "毎日", weekdays: "平日", weekly: "毎週", monthly: "毎月" }[task.repeat] || "";
+    repeatLabel.hidden = task.repeat === "none";
     card.querySelector(".star-button").textContent = task.priority === "high" ? "★" : "☆";
     card.querySelector(".star-button").classList.toggle("is-high", task.priority === "high");
     card.querySelector(".task-check").setAttribute("aria-label", task.status === "done" ? "未完了に戻す" : "完了にする");
@@ -270,7 +354,7 @@ function renderTable(tasks) {
   wrapper.className = "table-scroll";
   const table = document.createElement("table");
   table.className = "task-table";
-  table.innerHTML = `<thead><tr><th class="table-check-column">完了</th><th>タスク名</th><th>プロジェクト</th><th>ステータス</th><th>優先度</th><th>期限</th><th>タグ</th><th>工数（実績 / 見積）</th><th>サブタスク</th><th><span class="visually-hidden">操作</span></th></tr></thead>`;
+  table.innerHTML = `<thead><tr><th class="table-check-column">完了</th><th>タスク名</th><th>プロジェクト</th><th>ステータス</th><th>優先度</th><th>期限</th><th>繰り返し</th><th>タグ</th><th>工数（実績 / 見積）</th><th>サブタスク</th><th><span class="visually-hidden">操作</span></th></tr></thead>`;
   const body = document.createElement("tbody");
   const projects = getProjects();
   tasks.forEach((task) => {
@@ -310,6 +394,9 @@ function renderTable(tasks) {
     dueInput.dataset.value = dueTone(task.due, task.status);
     dueCell.append(dueInput);
 
+    const repeatCell = document.createElement("td");
+    repeatCell.append(makeTableSelect("repeat", task.repeat, [["none", "なし"], ["daily", "毎日"], ["weekdays", "平日"], ["weekly", "毎週"], ["monthly", "毎月"]], `${task.title}の繰り返し`));
+
     const tagsCell = document.createElement("td");
     tagsCell.className = "table-tags-cell";
     tagsCell.append(makeTableInput("tags", task.tags.join(", "), "text", `${task.title}のタグ`, "table-tags-input"), makeTagRow(task.tags));
@@ -344,7 +431,7 @@ function renderTable(tasks) {
     detailButton.setAttribute("aria-label", `「${task.title}」の詳細を開く`);
     actionCell.append(detailButton);
 
-    row.append(checkCell, titleCell, projectCell, statusCell, priorityCell, dueCell, tagsCell, effortCell, subtaskCell, actionCell);
+    row.append(checkCell, titleCell, projectCell, statusCell, priorityCell, dueCell, repeatCell, tagsCell, effortCell, subtaskCell, actionCell);
     body.append(row);
   });
   table.append(body);
@@ -447,20 +534,24 @@ function renderTimeline() {
 
 function render() {
   const listTasks = getVisibleTasks(false);
-  elements.list.hidden = state.mode !== "list";
-  elements.table.hidden = state.mode !== "table";
-  elements.board.hidden = state.mode !== "board";
-  elements.timeline.hidden = state.mode !== "timeline";
+  const trashView = state.view === "trash";
+  elements.list.hidden = trashView ? false : state.mode !== "list";
+  elements.table.hidden = trashView || state.mode !== "table";
+  elements.board.hidden = trashView || state.mode !== "board";
+  elements.timeline.hidden = trashView || state.mode !== "timeline";
+  elements.viewSwitcher.hidden = trashView;
+  elements.listToolbar.hidden = trashView;
   let visibleCount = listTasks.length;
-  if (state.mode === "list") renderList(listTasks);
-  if (state.mode === "table") renderTable(listTasks);
-  if (state.mode === "board") visibleCount = renderBoard();
-  if (state.mode === "timeline") visibleCount = renderTimeline();
+  if (trashView || state.mode === "list") renderList(listTasks);
+  if (!trashView && state.mode === "table") renderTable(listTasks);
+  if (!trashView && state.mode === "board") visibleCount = renderBoard();
+  if (!trashView && state.mode === "timeline") visibleCount = renderTimeline();
   elements.empty.hidden = visibleCount !== 0 || state.mode === "timeline";
   elements.summary.textContent = visibleCount ? `${visibleCount}件のタスク` : "タスクはありません";
   document.querySelectorAll(".view-mode-button").forEach((button) => button.classList.toggle("is-active", button.dataset.mode === state.mode));
   updateNavigationCounts();
   updateProjectNavigation();
+  updateFilterNavigation();
   updateHeading();
   updateProgress();
 }
@@ -472,6 +563,7 @@ function updateNavigationCounts() {
     all: state.tasks.filter((task) => task.status !== "done").length,
     upcoming: state.tasks.filter((task) => task.status !== "done" && task.due && task.due > today).length,
     completed: state.tasks.filter((task) => task.status === "done").length,
+    trash: state.trash.length,
   };
   Object.entries(counts).forEach(([key, value]) => {
     document.querySelector(`[data-count="${key}"]`).textContent = value;
@@ -509,14 +601,44 @@ function updateProjectNavigation() {
   if (getProjects().includes(editSelected)) elements.editProject.value = editSelected;
 }
 
+function updateFilterNavigation() {
+  elements.filterNavigation.replaceChildren();
+  state.savedFilters.forEach((filter) => {
+    const row = document.createElement("div");
+    row.className = `saved-filter-row${state.activeFilterId === filter.id ? " is-active" : ""}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "list-item saved-filter-button";
+    button.dataset.filterId = filter.id;
+    button.innerHTML = `<span class="nav-icon">⌁</span><span></span>`;
+    button.lastElementChild.textContent = filter.name;
+    const count = document.createElement("span");
+    count.className = "project-count";
+    count.textContent = state.tasks.filter((task) => matchesSavedFilter(task, filter, todayISO())).length;
+    button.append(count);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "saved-filter-remove";
+    remove.dataset.removeFilter = filter.id;
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `「${filter.name}」フィルターを削除`);
+    row.append(button, remove);
+    elements.filterNavigation.append(row);
+  });
+}
+
 function updateHeading() {
   const labels = {
     today: ["今日", "今日に集中しましょう。"],
     all: ["すべてのタスク", "やることを、ひと目で。"],
     upcoming: ["これから", "先の予定を軽やかに整えましょう。"],
     completed: ["完了したタスク", "積み重ねた成果です。"],
+    trash: ["ゴミ箱", "削除したタスクを復元できます。"],
   };
-  const [title, subtitle] = state.activeProject ? [state.activeProject, `${state.activeProject}プロジェクトのタスクです。`] : labels[state.view];
+  const activeFilter = state.savedFilters.find((filter) => filter.id === state.activeFilterId);
+  const [title, subtitle] = activeFilter
+    ? [activeFilter.name, "保存した条件に一致するタスクです。"]
+    : state.activeProject ? [state.activeProject, `${state.activeProject}プロジェクトのタスクです。`] : labels[state.view];
   elements.title.textContent = title;
   elements.subtitle.textContent = state.search ? `「${state.search}」の検索結果` : subtitle;
 }
@@ -530,11 +652,26 @@ function updateProgress() {
   elements.progress.setAttribute("aria-label", `今日の達成率 ${percent}%`);
 }
 
-function showToast(message) {
-  elements.toast.textContent = message;
+function showToast(message, { showUndo = undoStack.length > 0 } = {}) {
+  elements.toastMessage.textContent = message;
+  elements.undoButton.hidden = !showUndo;
   elements.toast.classList.add("is-visible");
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => elements.toast.classList.remove("is-visible"), 1800);
+  showToast.timer = setTimeout(() => {
+    elements.toast.classList.remove("is-visible");
+    elements.undoButton.hidden = true;
+  }, showUndo ? 8000 : 1800);
+}
+
+function undoLastChange() {
+  const snapshot = undoStack.pop();
+  if (!snapshot) return showToast("元に戻せる変更はありません", { showUndo: false });
+  const previous = JSON.parse(snapshot);
+  state.tasks = previous.tasks.map(normalizeTask);
+  state.trash = previous.trash.map(normalizeTask);
+  saveTasks({ recordUndo: false });
+  render();
+  showToast("直前の変更を元に戻しました", { showUndo: undoStack.length > 0 });
 }
 
 function downloadTextFile(filename, content, type) {
@@ -617,10 +754,17 @@ function currentBackupSettings() {
     mode: state.mode,
     sortPrimary: state.sortPrimary,
     sortSecondary: state.sortSecondary,
+    trash: state.trash,
+    savedFilters: state.savedFilters,
   };
 }
 
 function applyBackupSettings(settings) {
+  if (Array.isArray(settings.trash)) state.trash = settings.trash.map(normalizeTask);
+  if (Array.isArray(settings.savedFilters)) {
+    state.savedFilters = settings.savedFilters.map(normalizeSavedFilter).filter((filter) => filter.name);
+    saveFilters();
+  }
   if (settings.theme === "dark" || settings.theme === "light") {
     document.body.classList.toggle("is-dark", settings.theme === "dark");
     localStorage.setItem(THEME_KEY, settings.theme);
@@ -644,7 +788,18 @@ function applyBackupSettings(settings) {
 function setView(view, project = null) {
   state.view = view;
   state.activeProject = project;
+  state.activeFilterId = null;
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("is-active", !project && item.dataset.view === view));
+  closeSidebar();
+  render();
+}
+
+function setSavedFilter(filterId) {
+  if (!state.savedFilters.some((filter) => filter.id === filterId)) return;
+  state.view = "all";
+  state.activeProject = null;
+  state.activeFilterId = filterId;
+  document.querySelectorAll(".nav-item").forEach((item) => item.classList.remove("is-active"));
   closeSidebar();
   render();
 }
@@ -709,6 +864,7 @@ function openTaskDialog(taskId) {
   elements.editProject.value = task.project;
   elements.editNewProject.value = "";
   elements.editTags.value = task.tags.join(", ");
+  elements.editRepeat.value = task.repeat;
   elements.editEstimate.value = task.estimate || "";
   elements.editActual.value = task.actual || "";
   state.subtaskDraft = task.subtasks.map((item) => ({ ...item }));
@@ -737,6 +893,7 @@ function openNewTaskDialog() {
   elements.editProject.value = resolveProject(state.activeProject, elements.project.value);
   elements.editNewProject.value = "";
   elements.editTags.value = "";
+  elements.editRepeat.value = "none";
   elements.editEstimate.value = "";
   elements.editActual.value = "";
   state.subtaskDraft = [];
@@ -753,6 +910,13 @@ function addSubtask() {
   elements.subtaskInput.value = "";
   renderSubtaskEditor();
   elements.subtaskInput.focus();
+}
+
+function createNextOccurrenceIfNeeded(task, previousStatus) {
+  if (previousStatus === "done" || task.status !== "done" || task.repeat === "none") return null;
+  const next = createNextRecurringTask(task, todayISO());
+  if (next) state.tasks.unshift(next);
+  return next;
 }
 
 elements.form.addEventListener("submit", (event) => {
@@ -774,14 +938,31 @@ document.querySelector("#open-detailed-add").addEventListener("click", openNewTa
 elements.list.addEventListener("click", (event) => {
   const card = event.target.closest(".task-card");
   if (!card) return;
+  if (state.view === "trash") {
+    const task = state.trash.find((item) => item.id === card.dataset.id);
+    const action = event.target.closest("[data-trash-action]")?.dataset.trashAction;
+    if (!task || !action) return;
+    if (action === "restore") {
+      state.trash = state.trash.filter((item) => item.id !== task.id);
+      state.tasks.unshift(normalizeTask({ ...task, deletedAt: null }));
+      saveTasks(); render(); showToast(`「${task.title}」を復元しました`);
+    }
+    if (action === "delete" && confirm(`「${task.title}」を完全に削除しますか？`)) {
+      state.trash = state.trash.filter((item) => item.id !== task.id);
+      saveTasks(); render(); showToast("完全に削除しました");
+    }
+    return;
+  }
   const task = state.tasks.find((item) => item.id === card.dataset.id);
   if (!task) return;
   if (event.target.closest(".task-check")) {
+    const previousStatus = task.status;
     task.status = task.status === "done" ? "todo" : "done";
     task.completed = task.status === "done";
     task.completedAt = task.completed ? Date.now() : null;
+    const nextOccurrence = createNextOccurrenceIfNeeded(task, previousStatus);
     saveTasks(); render();
-    showToast(task.completed ? "おつかれさま！ 1つ完了しました" : "未完了に戻しました");
+    showToast(nextOccurrence ? `完了しました。次回は${formatDate(nextOccurrence.due)}です` : task.completed ? "おつかれさま！ 1つ完了しました" : "未完了に戻しました");
   } else if (event.target.closest(".star-button")) {
     task.priority = task.priority === "high" ? "normal" : "high";
     saveTasks(); render();
@@ -803,19 +984,21 @@ elements.table.addEventListener("change", (event) => {
   if (!field || !task) return;
   const nextField = field === "completed" ? "status" : field;
   const nextValue = field === "completed" ? (event.target.checked ? "done" : "todo") : event.target.value;
+  const previousStatus = task.status;
   const updated = applyTableEdit(task, nextField, nextValue);
   if (field === "title" && updated.title === task.title && !String(nextValue).trim()) {
     render();
     return showToast("タスク名は空にできません");
   }
   Object.assign(task, updated);
+  const nextOccurrence = createNextOccurrenceIfNeeded(task, previousStatus);
   if (nextField === "project" && !state.projects.includes(task.project)) {
     state.projects.push(task.project);
     saveProjects();
   }
   saveTasks();
   render();
-  showToast("テーブルの変更を保存しました");
+  showToast(nextOccurrence ? `完了しました。次回は${formatDate(nextOccurrence.due)}です` : "テーブルの変更を保存しました");
 });
 
 elements.table.addEventListener("keydown", (event) => {
@@ -860,16 +1043,31 @@ elements.board.addEventListener("drop", (event) => {
   event.preventDefault();
   const task = state.tasks.find((item) => item.id === event.dataTransfer.getData("text/plain"));
   if (!task) return;
+  const previousStatus = task.status;
   task.status = column.dataset.status;
   task.completed = task.status === "done";
   task.completedAt = task.completed ? Date.now() : null;
-  saveTasks(); render(); showToast(`「${column.querySelector("h2").textContent}」へ移動しました`);
+  const nextOccurrence = createNextOccurrenceIfNeeded(task, previousStatus);
+  saveTasks(); render(); showToast(nextOccurrence ? `完了しました。次回は${formatDate(nextOccurrence.due)}です` : `「${column.querySelector("h2").textContent}」へ移動しました`);
 });
 
 document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => setView(item.dataset.view)));
 elements.projectNavigation.addEventListener("click", (event) => {
   const button = event.target.closest("[data-project]");
   if (button) setView("all", button.dataset.project);
+});
+elements.filterNavigation.addEventListener("click", (event) => {
+  const removeId = event.target.closest("[data-remove-filter]")?.dataset.removeFilter;
+  if (removeId) {
+    const filter = state.savedFilters.find((item) => item.id === removeId);
+    if (!filter || !confirm(`「${filter.name}」フィルターを削除しますか？`)) return;
+    state.savedFilters = state.savedFilters.filter((item) => item.id !== removeId);
+    if (state.activeFilterId === removeId) setView("all");
+    saveFilters(); render(); showToast("フィルターを削除しました", { showUndo: false });
+    return;
+  }
+  const filterId = event.target.closest("[data-filter-id]")?.dataset.filterId;
+  if (filterId) setSavedFilter(filterId);
 });
 document.querySelectorAll(".view-mode-button").forEach((button) => button.addEventListener("click", () => {
   state.mode = button.dataset.mode;
@@ -908,13 +1106,18 @@ elements.editForm.addEventListener("submit", (event) => {
     estimate: elements.editEstimate.value,
     actual: elements.editActual.value,
     subtasks: state.subtaskDraft,
+    repeat: elements.editRepeat.value,
   });
   if (!state.projects.includes(task.project)) {
     state.projects.push(task.project);
     saveProjects();
   }
   if (isCreating) state.tasks.unshift(task);
-  else Object.assign(baseTask, task);
+  else {
+    const previousStatus = baseTask.status;
+    Object.assign(baseTask, task);
+    createNextOccurrenceIfNeeded(baseTask, previousStatus);
+  }
   saveTasks();
   elements.dialog.close();
   if (isCreating) elements.input.value = "";
@@ -926,6 +1129,35 @@ document.querySelector("#open-project-dialog").addEventListener("click", () => {
   elements.newProjectName.value = "";
   elements.projectDialog.showModal();
   requestAnimationFrame(() => elements.newProjectName.focus());
+});
+
+document.querySelector("#open-filter-dialog").addEventListener("click", () => {
+  elements.filterName.value = "";
+  elements.filterProject.replaceChildren(new Option("すべて", "any"), ...getProjects().map((project) => new Option(project, project)));
+  elements.filterStatus.value = "any";
+  elements.filterPriority.value = "any";
+  elements.filterDue.value = "any";
+  elements.filterTag.value = "";
+  elements.filterDialog.showModal();
+  requestAnimationFrame(() => elements.filterName.focus());
+});
+
+elements.filterForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const filter = normalizeSavedFilter({
+    name: elements.filterName.value,
+    project: elements.filterProject.value,
+    status: elements.filterStatus.value,
+    priority: elements.filterPriority.value,
+    due: elements.filterDue.value,
+    tag: elements.filterTag.value,
+  });
+  if (!filter.name) return;
+  state.savedFilters.push(filter);
+  saveFilters();
+  elements.filterDialog.close();
+  setSavedFilter(filter.id);
+  showToast("フィルターを保存しました", { showUndo: false });
 });
 
 elements.projectForm.addEventListener("submit", (event) => {
@@ -1052,16 +1284,21 @@ document.querySelector("#delete-task").addEventListener("click", () => {
   const task = state.tasks.find((item) => item.id === elements.editId.value);
   if (!task || !confirm(`「${task.title}」を削除しますか？`)) return;
   state.tasks = state.tasks.filter((item) => item.id !== task.id);
-  saveTasks(); elements.dialog.close(); render(); showToast("タスクを削除しました");
+  state.trash.unshift(normalizeTask({ ...task, deletedAt: Date.now() }));
+  saveTasks(); elements.dialog.close(); render(); showToast("タスクをゴミ箱へ移動しました");
 });
 
 document.querySelector("#clear-completed").addEventListener("click", () => {
   const completedCount = state.tasks.filter((task) => task.status === "done").length;
   if (!completedCount) return showToast("整理する完了タスクはありません");
   if (!confirm(`${completedCount}件の完了タスクを削除しますか？`)) return;
+  const completedTasks = state.tasks.filter((task) => task.status === "done");
   state.tasks = state.tasks.filter((task) => task.status !== "done");
-  saveTasks(); render(); showToast(`${completedCount}件の完了タスクを整理しました`);
+  state.trash.unshift(...completedTasks.map((task) => normalizeTask({ ...task, deletedAt: Date.now() })));
+  saveTasks(); render(); showToast(`${completedCount}件をゴミ箱へ移動しました`);
 });
+
+elements.undoButton.addEventListener("click", undoLastChange);
 
 document.querySelector("#focus-add").addEventListener("click", () => elements.input.focus());
 document.querySelector("#menu-button").addEventListener("click", openSidebar);
@@ -1074,6 +1311,7 @@ document.querySelector("#theme-toggle").addEventListener("click", () => {
 
 document.addEventListener("keydown", (event) => {
   if (event.ctrlKey && event.key.toLowerCase() === "k") { event.preventDefault(); elements.search.focus(); }
+  if (event.ctrlKey && event.key.toLowerCase() === "z" && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) { event.preventDefault(); undoLastChange(); }
   if (event.key === "Escape" && !elements.dialog.open) { elements.search.blur(); closeSidebar(); }
 });
 

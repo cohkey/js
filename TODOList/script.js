@@ -144,6 +144,24 @@ function formatHours(value) {
   return Number(value) % 1 === 0 ? `${Number(value)}h` : `${Number(value).toFixed(1)}h`;
 }
 
+function colorHue(value) {
+  return [...String(value || "未分類")].reduce((hash, character) => ((hash * 31) + character.charCodeAt(0)) % 360, 18);
+}
+
+function applyNamedColor(element, value) {
+  element.classList.add("named-color");
+  element.style.setProperty("--label-hue", colorHue(value));
+}
+
+function dueTone(due, status = "todo") {
+  if (!due) return "none";
+  if (status === "done") return "done";
+  if (due < todayISO()) return "overdue";
+  if (due === todayISO()) return "today";
+  if (due === addDays(todayISO(), 1)) return "tomorrow";
+  return "future";
+}
+
 function matchesCommonFilters(task) {
   if (state.activeProject && task.project !== state.activeProject) return false;
   const query = state.search.toLowerCase();
@@ -171,6 +189,7 @@ function makeTagRow(tags) {
     const pill = document.createElement("span");
     pill.className = "tag-pill";
     pill.textContent = `#${tag}`;
+    applyNamedColor(pill, tag);
     row.append(pill);
   });
   return row;
@@ -187,15 +206,23 @@ function renderList(tasks) {
     card.classList.toggle("is-completed", task.status === "done");
     card.querySelector(".task-title").textContent = task.title;
     card.querySelector(".task-date").textContent = formatDate(task.due);
+    card.querySelector(".task-date").dataset.tone = dueTone(task.due, task.status);
     card.querySelector(".task-date").classList.toggle("is-overdue", Boolean(task.due && task.due < todayISO() && task.status !== "done"));
     card.querySelector(".task-project-label").textContent = task.project;
+    applyNamedColor(card.querySelector(".task-project-label"), task.project);
     const effort = card.querySelector(".effort-label");
     effort.textContent = task.estimate ? `${formatHours(task.actual)} / ${formatHours(task.estimate)}` : "";
     effort.hidden = !task.estimate;
     const subtask = card.querySelector(".subtask-label");
     subtask.textContent = task.subtasks.length ? `${completedSubtasks}/${task.subtasks.length}` : "";
     subtask.hidden = !task.subtasks.length;
-    card.querySelector(".priority-label").hidden = task.priority !== "high";
+    const statusLabel = card.querySelector(".status-label");
+    statusLabel.textContent = { todo: "未着手", doing: "進行中", done: "完了" }[task.status];
+    statusLabel.dataset.value = task.status;
+    const priorityLabel = card.querySelector(".priority-label");
+    priorityLabel.textContent = { high: "高", normal: "通常", low: "低" }[task.priority];
+    priorityLabel.dataset.value = task.priority;
+    priorityLabel.hidden = false;
     card.querySelector(".star-button").textContent = task.priority === "high" ? "★" : "☆";
     card.querySelector(".star-button").classList.toggle("is-high", task.priority === "high");
     card.querySelector(".task-check").setAttribute("aria-label", task.status === "done" ? "未完了に戻す" : "完了にする");
@@ -204,10 +231,15 @@ function renderList(tasks) {
   });
 }
 
-function makeTableSelect(field, value, options, label) {
+function makeTableSelect(field, value, options, label, colorType = "") {
   const select = document.createElement("select");
   select.className = "table-field table-select";
   select.dataset.field = field;
+  if (colorType) {
+    select.classList.add("table-color-field");
+    select.dataset.colorType = colorType;
+    select.dataset.value = value;
+  }
   select.setAttribute("aria-label", label);
   options.forEach(([optionValue, optionLabel]) => {
     const option = document.createElement("option");
@@ -262,19 +294,25 @@ function renderTable(tasks) {
     titleCell.append(makeTableInput("title", task.title, "text", `${task.title}のタスク名`, "table-title-input"));
 
     const projectCell = document.createElement("td");
-    projectCell.append(makeTableSelect("project", task.project, projects.map((project) => [project, project]), `${task.title}のプロジェクト`));
+    const projectSelect = makeTableSelect("project", task.project, projects.map((project) => [project, project]), `${task.title}のプロジェクト`, "project");
+    applyNamedColor(projectSelect, task.project);
+    projectCell.append(projectSelect);
 
     const statusCell = document.createElement("td");
-    statusCell.append(makeTableSelect("status", task.status, [["todo", "未着手"], ["doing", "進行中"], ["done", "完了"]], `${task.title}のステータス`));
+    statusCell.append(makeTableSelect("status", task.status, [["todo", "未着手"], ["doing", "進行中"], ["done", "完了"]], `${task.title}のステータス`, "status"));
 
     const priorityCell = document.createElement("td");
-    priorityCell.append(makeTableSelect("priority", task.priority, [["high", "優先"], ["normal", "通常"], ["low", "低め"]], `${task.title}の優先度`));
+    priorityCell.append(makeTableSelect("priority", task.priority, [["high", "高"], ["normal", "通常"], ["low", "低"]], `${task.title}の優先度`, "priority"));
 
     const dueCell = document.createElement("td");
-    dueCell.append(makeTableInput("due", task.due || "", "date", `${task.title}の期限`, "table-date-input"));
+    const dueInput = makeTableInput("due", task.due || "", "date", `${task.title}の期限`, "table-date-input table-color-field");
+    dueInput.dataset.colorType = "due";
+    dueInput.dataset.value = dueTone(task.due, task.status);
+    dueCell.append(dueInput);
 
     const tagsCell = document.createElement("td");
-    tagsCell.append(makeTableInput("tags", task.tags.join(", "), "text", `${task.title}のタグ`, "table-tags-input"));
+    tagsCell.className = "table-tags-cell";
+    tagsCell.append(makeTableInput("tags", task.tags.join(", "), "text", `${task.title}のタグ`, "table-tags-input"), makeTagRow(task.tags));
 
     const effortCell = document.createElement("td");
     effortCell.className = "table-effort-cell";
@@ -350,8 +388,11 @@ function renderBoard() {
       const project = document.createElement("span");
       project.className = "kanban-card-project";
       project.textContent = task.project;
+      applyNamedColor(project, task.project);
       const detail = document.createElement("span");
       detail.textContent = `${formatDate(task.due)}${task.estimate ? ` · ${formatHours(task.estimate)}` : ""}`;
+      detail.className = "kanban-card-due";
+      detail.dataset.tone = dueTone(task.due, task.status);
       meta.append(project, detail);
       card.append(meta);
       stack.append(card);
@@ -383,6 +424,7 @@ function renderTimeline() {
       item.className = "timeline-task";
       item.dataset.id = task.id;
       item.dataset.project = task.project;
+      applyNamedColor(item, task.project);
       const title = document.createElement("strong");
       title.textContent = task.title;
       const meta = document.createElement("span");

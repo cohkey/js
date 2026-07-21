@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, getDeadlineStatus, calculateDashboardStats, normalizeSavedFilter, matchesSavedFilter,
-  sortTasks, groupTasksByProject, groupTasks, resolveProject, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+  sortTasks, groupTasksByProject, groupTasks, resolveProject, addProject, removeProject, collectTags, renameTag, removeTag, applyTaskDetails, applyTableEdit, closeDialog,
   parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = require("./task-core.js");
 
@@ -218,6 +218,44 @@ test("空のプロジェクトを追加して重複なく保持できる", () =>
   assert.deepEqual(duplicate.projects, created.projects);
 });
 
+test("プロジェクト削除でタスクを未分類へ移し関連設定も整理する", () => {
+  const tasks = [makeTask({ id: "work", project: "仕事" }), makeTask({ id: "home", project: "個人" })];
+  const result = removeProject(tasks, ["未分類", "仕事", "個人"], ["仕事"], [{ id: "f1", project: "仕事", tag: "" }], "仕事");
+  assert.equal(result.removed, true);
+  assert.equal(result.moved, 1);
+  assert.equal(result.tasks[0].project, "未分類");
+  assert.deepEqual(result.projects, ["未分類", "個人"]);
+  assert.deepEqual(result.favoriteProjects, []);
+  assert.equal(result.savedFilters[0].project, "any");
+});
+
+test("未分類プロジェクトは削除できない", () => {
+  const result = removeProject([], ["未分類"], [], [], "未分類");
+  assert.equal(result.removed, false);
+  assert.deepEqual(result.projects, ["未分類"]);
+});
+
+test("タグ一覧を集約し名称変更をタスクとフィルターへ反映する", () => {
+  const tasks = [makeTask({ id: "one", tags: ["重要", "連絡"] }), makeTask({ id: "two", tags: ["重要"] })];
+  assert.deepEqual(new Set(collectTags(tasks, ["未使用", "重要"])), new Set(["未使用", "連絡", "重要"]));
+  const result = renameTag(tasks, ["重要", "未使用"], [{ id: "f1", project: "any", tag: "重要" }], "重要", "最優先");
+  assert.equal(result.affected, 2);
+  assert.deepEqual(result.tasks[0].tags, ["最優先", "連絡"]);
+  assert.equal(result.savedFilters[0].tag, "最優先");
+  assert.ok(result.tags.includes("最優先"));
+  assert.ok(!result.tags.includes("重要"));
+});
+
+test("タグ削除を全タスクと保存フィルターへ反映する", () => {
+  const tasks = [makeTask({ id: "one", tags: ["不要", "維持"] }), makeTask({ id: "two", tags: ["不要"] })];
+  const result = removeTag(tasks, ["不要", "維持", "未使用"], [{ id: "f1", project: "any", tag: "不要" }], "不要");
+  assert.equal(result.removed, true);
+  assert.equal(result.affected, 2);
+  assert.deepEqual(result.tasks[0].tags, ["維持"]);
+  assert.equal(result.savedFilters[0].tag, "");
+  assert.ok(!result.tags.includes("不要"));
+});
+
 test("詳細追加の全項目をタスクデータへ反映できる", () => {
   const base = normalizeTask({ id: "new-detail", title: "仮", createdAt: 1 });
   const task = applyTaskDetails(base, {
@@ -263,6 +301,13 @@ test("BOM・引用符・カンマ・改行を含むExcel CSVを解析できる",
   assert.equal(parsed.rows[0][0], "資料を確認,返信");
   assert.equal(parsed.rows[0][1], "1行目\n2行目");
   assert.equal(parsed.rows[1][0], '"重要"を確認');
+});
+
+test("Excelからコピーしたタブ区切りの表をCSVと同じ形式で解析できる", () => {
+  const parsed = parseCSV("タスク名\tステータス\t期限\tプロジェクト\n貼り付け,確認\t未着手\t2026/07/30\t仕事\n完了確認\t完了\t2026/07/31\t個人");
+  assert.deepEqual(parsed.headers, ["タスク名", "ステータス", "期限", "プロジェクト"]);
+  assert.equal(parsed.rows.length, 2);
+  assert.deepEqual(parsed.rows[0], ["貼り付け,確認", "未着手", "2026/07/30", "仕事"]);
 });
 
 test("日本語と英語の列名を自動で割り当てる", () => {

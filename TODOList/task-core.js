@@ -21,7 +21,165 @@
       : [],
     createdAt: task.createdAt || Date.now(),
     completedAt: task.completedAt || null,
+    repeat: ["daily", "weekdays", "weekly", "monthly"].includes(task.repeat) ? task.repeat : "none",
+    deletedAt: task.deletedAt || null,
+    trackedSeconds: Math.max(0, Number(task.trackedSeconds) || 0),
+    timerStartedAt: Number(task.timerStartedAt) > 0 ? Number(task.timerStartedAt) : null,
   });
+
+  function nextRecurringDue(due, repeat, today = new Date().toISOString().slice(0, 10)) {
+    if (!["daily", "weekdays", "weekly", "monthly"].includes(repeat)) return null;
+    const source = due && due > today ? due : today;
+    const date = new Date(`${source}T12:00:00`);
+    if (repeat === "daily") date.setDate(date.getDate() + 1);
+    if (repeat === "weekly") date.setDate(date.getDate() + 7);
+    if (repeat === "weekdays") {
+      do date.setDate(date.getDate() + 1); while ([0, 6].includes(date.getDay()));
+    }
+    if (repeat === "monthly") {
+      const originalDay = date.getDate();
+      date.setDate(1);
+      date.setMonth(date.getMonth() + 1);
+      const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+      date.setDate(Math.min(originalDay, lastDay));
+    }
+    return date.toISOString().slice(0, 10);
+  }
+
+  function createNextRecurringTask(task, today, now = Date.now()) {
+    const due = nextRecurringDue(task.due, task.repeat, today);
+    if (!due) return null;
+    return normalizeTask({
+      ...task,
+      id: makeId(),
+      due,
+      status: "todo",
+      completed: false,
+      completedAt: null,
+      actual: 0,
+      trackedSeconds: 0,
+      timerStartedAt: null,
+      subtasks: task.subtasks.map((item) => ({ ...item, id: makeId(), completed: false })),
+      createdAt: now,
+    });
+  }
+
+  function getLiveActualHours(task, now = Date.now()) {
+    const activeSeconds = task.timerStartedAt ? Math.max(0, (now - task.timerStartedAt) / 1000) : 0;
+    return Math.max(0, Number(task.actual) || 0) + (activeSeconds / 3600);
+  }
+
+  function startTaskTimer(task, now = Date.now()) {
+    if (task.timerStartedAt) return { ...task };
+    return { ...task, timerStartedAt: now };
+  }
+
+  function stopTaskTimer(task, now = Date.now()) {
+    if (!task.timerStartedAt) return { ...task };
+    const elapsedSeconds = Math.max(0, Math.round((now - task.timerStartedAt) / 1000));
+    return {
+      ...task,
+      actual: Math.max(0, Number(task.actual) || 0) + (elapsedSeconds / 3600),
+      trackedSeconds: Math.max(0, Number(task.trackedSeconds) || 0) + elapsedSeconds,
+      timerStartedAt: null,
+    };
+  }
+
+  function addDateDays(iso, days) {
+    const date = new Date(`${iso}T12:00:00`);
+    date.setDate(date.getDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function getDeadlineStatus(task, today) {
+    if (!task?.due || task.status === "done") return { tone: task?.status === "done" ? "done" : "none", days: null, label: "" };
+    const days = Math.round((new Date(`${task.due}T12:00:00`) - new Date(`${today}T12:00:00`)) / 86400000);
+    if (days < 0) return { tone: "overdue", days, label: `期限切れ・${Math.abs(days)}日超過` };
+    if (days === 0) return { tone: "today", days, label: "今日まで" };
+    if (days === 1) return { tone: "tomorrow", days, label: "明日まで" };
+    if (days <= 7) return { tone: "week", days, label: `あと${days}日` };
+    return { tone: "future", days, label: "" };
+  }
+
+  function calculateDashboardStats(tasks, today) {
+    const active = tasks.filter((task) => task.status !== "done");
+    const deadlines = { overdue: 0, today: 0, tomorrow: 0, week: 0, total: 0 };
+    active.forEach((task) => {
+      const deadline = getDeadlineStatus(task, today);
+      if (task.due) deadlines.total += 1;
+      if (Object.hasOwn(deadlines, deadline.tone) && deadline.tone !== "total") deadlines[deadline.tone] += 1;
+    });
+    const status = { todo: 0, doing: 0, done: 0 };
+    tasks.forEach((task) => { status[task.status] = (status[task.status] || 0) + 1; });
+    const priority = { high: 0, normal: 0, low: 0 };
+    active.forEach((task) => { priority[task.priority] = (priority[task.priority] || 0) + 1; });
+    const sumCounts = (values) => [...values.entries()].map(([name, count]) => ({ name, count }));
+    const projects = new Map();
+    const tags = new Map();
+    active.forEach((task) => {
+      projects.set(task.project || "未分類", (projects.get(task.project || "未分類") || 0) + 1);
+      task.tags.forEach((tag) => tags.set(tag, (tags.get(tag) || 0) + 1));
+    });
+    const byCount = (a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja");
+    const completionTrend = [];
+    for (let offset = -6; offset <= 0; offset += 1) {
+      const date = addDateDays(today, offset);
+      const count = tasks.filter((task) => {
+        if (!task.completedAt) return false;
+        const completed = new Date(task.completedAt);
+        const localCompleted = new Date(completed.getTime() - completed.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+        return localCompleted === date;
+      }).length;
+      completionTrend.push({ date, count });
+    }
+    return {
+      deadlines,
+      status,
+      priority,
+      projects: sumCounts(projects).sort(byCount),
+      tags: sumCounts(tags).sort(byCount),
+      effort: tasks.reduce((totals, task) => ({ estimate: totals.estimate + task.estimate, actual: totals.actual + task.actual }), { estimate: 0, actual: 0 }),
+      completionTrend,
+      completionRate: tasks.length ? Math.round((status.done / tasks.length) * 100) : 0,
+      total: tasks.length,
+      active: active.length,
+    };
+  }
+
+  function normalizeSavedFilter(filter) {
+    const dueValues = ["any", "overdue", "today", "tomorrow", "week", "none"];
+    return {
+      id: filter.id || makeId(),
+      name: String(filter.name || "").trim().slice(0, 30),
+      project: normalizeProjectName(filter.project) || "any",
+      status: ["any", "todo", "doing", "done"].includes(filter.status) ? filter.status : "any",
+      priority: ["any", "high", "normal", "low"].includes(filter.priority) ? filter.priority : "any",
+      due: dueValues.includes(filter.due) ? filter.due : "any",
+      tag: String(filter.tag || "").trim().replace(/^#/, "").slice(0, 30),
+    };
+  }
+
+  function matchesSavedFilter(task, filter, today) {
+    if (!filter) return true;
+    if (filter.project !== "any" && task.project !== filter.project) return false;
+    if (filter.status !== "any" && task.status !== filter.status) return false;
+    if (filter.priority !== "any" && task.priority !== filter.priority) return false;
+    if (filter.tag && !task.tags.includes(filter.tag)) return false;
+    if (filter.due === "overdue" && (!task.due || task.due >= today || task.status === "done")) return false;
+    if (filter.due === "today" && task.due !== today) return false;
+    if (filter.due === "tomorrow") {
+      const tomorrow = new Date(`${today}T12:00:00`);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      if (task.due !== tomorrow.toISOString().slice(0, 10)) return false;
+    }
+    if (filter.due === "week") {
+      const end = new Date(`${today}T12:00:00`);
+      end.setDate(end.getDate() + 7);
+      if (!task.due || task.due < today || task.due > end.toISOString().slice(0, 10)) return false;
+    }
+    if (filter.due === "none" && task.due) return false;
+    return true;
+  }
 
   function compareBy(taskA, taskB, condition) {
     const priorityScore = { high: 0, normal: 1, low: 2 };
@@ -45,6 +203,35 @@
       }
       return taskA.createdAt - taskB.createdAt;
     });
+  }
+
+  function groupTasksByProject(tasks, projectOrder = []) {
+    return groupTasks(tasks, "project", projectOrder).map((group) => ({ project: group.key, tasks: group.tasks }));
+  }
+
+  function groupTasks(tasks, groupBy, projectOrder = []) {
+    const priorityLabels = { high: "優先度：高", normal: "優先度：通常", low: "優先度：低" };
+    const priorityOrder = new Map(["high", "normal", "low"].map((value, index) => [value, index]));
+    const order = new Map(projectOrder.map((project, index) => [project, index]));
+    const groups = new Map();
+    tasks.forEach((task) => {
+      const key = groupBy === "priority"
+        ? (task.priority || "normal")
+        : groupBy === "tag" ? (task.tags[0] || "タグなし") : (task.project || "未分類");
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(task);
+    });
+    return [...groups.entries()]
+      .sort(([keyA], [keyB]) => {
+        if (groupBy === "priority") return (priorityOrder.get(keyA) ?? 99) - (priorityOrder.get(keyB) ?? 99);
+        if (groupBy === "tag") {
+          if (keyA === "タグなし") return 1;
+          if (keyB === "タグなし") return -1;
+          return keyA.localeCompare(keyB, "ja");
+        }
+        return (order.get(keyA) ?? Number.MAX_SAFE_INTEGER) - (order.get(keyB) ?? Number.MAX_SAFE_INTEGER) || keyA.localeCompare(keyB, "ja");
+      })
+      .map(([key, groupedTasks]) => ({ key, label: groupBy === "priority" ? priorityLabels[key] : key, tasks: groupedTasks }));
   }
 
   const resolveProject = (activeProject, selectedProject) => activeProject || selectedProject || "未分類";
@@ -76,7 +263,31 @@
       estimate: Math.max(0, Number(details.estimate) || 0),
       actual: Math.max(0, Number(details.actual) || 0),
       subtasks: Array.isArray(details.subtasks) ? details.subtasks.map((item) => ({ ...item })) : [],
+      repeat: ["daily", "weekdays", "weekly", "monthly"].includes(details.repeat) ? details.repeat : "none",
     };
+  }
+
+  function applyTableEdit(task, field, value, now = Date.now()) {
+    const editableFields = new Set(["title", "status", "priority", "due", "project", "tags", "estimate", "actual", "repeat"]);
+    if (!editableFields.has(field)) return { ...task };
+    if (field === "title" && !String(value || "").trim()) return { ...task };
+    const details = {
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      due: task.due,
+      project: task.project,
+      tags: task.tags,
+      estimate: task.estimate,
+      actual: task.actual,
+      subtasks: task.subtasks,
+      repeat: task.repeat,
+      [field]: value,
+    };
+    if (field === "status" && !["todo", "doing", "done"].includes(value)) details.status = task.status;
+    if (field === "priority" && !["low", "normal", "high"].includes(value)) details.priority = task.priority;
+    if (field === "repeat" && !["none", "daily", "weekdays", "weekly", "monthly"].includes(value)) details.repeat = task.repeat;
+    return applyTaskDetails(task, details, now);
   }
 
   function closeDialog(dialog) {
@@ -237,7 +448,8 @@
   }
 
   return {
-    makeId, normalizeTask, compareBy, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, closeDialog,
+    makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, getDeadlineStatus, calculateDashboardStats, normalizeSavedFilter, matchesSavedFilter,
+    compareBy, sortTasks, groupTasksByProject, groupTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
     CSV_FIELDS, parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
   };
 });

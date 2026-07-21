@@ -96,9 +96,11 @@ button { color: inherit; }
 .project-link { min-width: 0; flex: 1; }
 .project-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-favorite-marker { width: 9px; flex: 0 0 auto; color: var(--yellow); font-size: 11px; }
-.project-favorite-button { width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: 8px; background: transparent; color: #aaa69d; opacity: 0; }
-.project-row:hover .project-favorite-button, .project-favorite-button:focus, .project-favorite-button.is-favorite { opacity: 1; }
+.project-favorite-button, .project-remove-button { width: 28px; height: 28px; flex: 0 0 auto; border: 0; border-radius: 8px; background: transparent; color: #aaa69d; opacity: 0; }
+.project-row:hover .project-favorite-button, .project-row:hover .project-remove-button, .project-row.is-active .project-remove-button, .project-favorite-button:focus, .project-remove-button:focus, .project-favorite-button.is-favorite { opacity: 1; }
 .project-favorite-button:hover, .project-favorite-button.is-favorite { background: #fff2d8; color: #a66c00; }
+.project-remove-button:hover { background: var(--accent-soft); color: var(--accent); }
+@media (hover: none) { .project-favorite-button, .project-remove-button { opacity: 1; } }
 .saved-filter-row { display: flex; align-items: center; gap: 2px; border-radius: 12px; }
 .saved-filter-row.is-active { background: var(--surface-strong); box-shadow: 0 8px 24px rgba(57,48,33,.06); }
 .saved-filter-button { min-width: 0; flex: 1; }
@@ -399,6 +401,7 @@ body.is-dark .subtask-row { border-color: #3c3d38; }
 .project-add-button { width: 25px; height: 25px; display: grid; place-items: center; margin: -3px 8px 8px 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--muted); font-size: 17px; line-height: 1; transition: .2s; }
 .project-add-button:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); transform: translateY(-1px); }
 #project-navigation { display: grid; gap: 3px; }
+.tag-manager-link { width: 100%; }
 .list-item.is-active { background: var(--surface-strong); color: var(--text); box-shadow: 0 8px 24px rgba(57,48,33,.05); }
 .list-item .project-count { margin-left: auto; color: var(--muted); font-size: 11px; }
 .data-section { margin-top: 24px; }
@@ -529,6 +532,9 @@ body.is-dark .subtask-row { border-color: #3c3d38; }
 .calendar-task strong, .calendar-task span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-task strong { font-size: 10px; }
 .calendar-task span { margin-top: 5px; color: var(--muted); font-size: 8px; }
+.calendar-task.is-completed { border-color: #c9dfce !important; background: #edf6ef !important; opacity: .7; }
+.calendar-task.is-completed strong { color: #4d7658; text-decoration: line-through; }
+.calendar-task.is-completed span { color: #789080; }
 .calendar-day-empty { padding: 8px 3px; color: #b5b0a6; font-size: 8px; }
 
 .task-dialog, .project-dialog, .import-dialog { max-height: calc(100vh - 30px); padding: 0; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); color: var(--text); box-shadow: 0 25px 80px rgba(30,27,21,.24); }
@@ -564,6 +570,20 @@ body.is-dark .subtask-row { border-color: #3c3d38; }
 .timer-panel button.is-running { border-color: #b9d8c2; background: #e5f3e9; color: #39794b; }
 .favorite-project-option { display: flex; align-items: center; gap: 7px; margin-top: 13px; color: var(--muted); font-size: 10px; }
 .favorite-project-option input { accent-color: var(--yellow); }
+.tag-manager-add { display: flex; gap: 8px; }
+.tag-manager-add input { min-width: 0; flex: 1; height: 40px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; outline: 0; background: var(--surface-strong); color: var(--text); }
+.tag-manager-add input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(244,111,82,.1); }
+.tag-manager-list { display: grid; gap: 7px; max-height: min(390px, 48vh); margin-top: 18px; overflow-y: auto; }
+.tag-manager-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto auto; align-items: center; gap: 7px; padding: 8px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-strong); }
+.tag-manager-marker { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 8px; font-weight: 800; }
+.tag-manager-row input { min-width: 0; height: 34px; padding: 0 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text); font-size: 11px; font-weight: 600; }
+.tag-manager-row input:focus { border-color: var(--line); background: var(--surface); outline: 0; }
+.tag-manager-usage { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.tag-manager-rename, .tag-manager-remove { padding: 6px 8px; border: 0; border-radius: 7px; font-size: 9px; font-weight: 700; }
+.tag-manager-rename { background: #e5f0fb; color: #2f6f9f; }
+.tag-manager-remove { background: transparent; color: var(--accent); }
+.tag-manager-remove:hover { background: var(--accent-soft); }
+.tag-manager-empty { padding: 28px 0; color: var(--muted); font-size: 10px; text-align: center; }
 .number-input { position: relative; }
 .number-input input { padding-right: 42px; }
 .number-input b { position: absolute; right: 11px; top: 50%; color: var(--muted); font-size: 9px; transform: translateY(-50%); }
@@ -639,6 +659,10 @@ body.is-dark .effort-summary-item--difference { background: #342f49; }
 body.is-dark .repeat-label { border-color: #655a86; background: transparent; color: #b8a8ee; }
 body.is-dark .project-row.is-active, body.is-dark .saved-filter-row.is-active { background: #30312d; }
 body.is-dark .project-favorite-button.is-favorite { background: #493d25; color: #f3c45e; }
+body.is-dark .calendar-task.is-completed { border-color: #3d5a43 !important; background: #29372d !important; }
+body.is-dark .calendar-task.is-completed strong { color: #95c6a1; }
+body.is-dark .tag-manager-row, body.is-dark .tag-manager-add input { border-color: #41423d; background: #30312e; }
+body.is-dark .tag-manager-rename { background: #28394a; color: #91bfe8; }
 body.is-dark .upcoming-calendar-grid { border-color: #3b3c37; background: #272825; }
 body.is-dark .calendar-day { border-color: #3b3c37; background: #292a27; }
 body.is-dark .calendar-day.is-today { background: rgba(85,53,46,.38); }

@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f3ea" />
+    <link rel="icon" type="image/svg+xml" href="assets/icons/tempo-icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/icons/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png" />
+    <link rel="manifest" href="manifest.webmanifest" />
     <meta
       name="description"
       content="今日やることが、迷わず片づく。シンプルで使いやすいTODOリスト。"
@@ -65,6 +69,14 @@
             <button class="project-add-button" id="open-project-dialog" type="button" aria-label="プロジェクトを追加" aria-haspopup="dialog" title="プロジェクトを追加">＋</button>
           </div>
           <div id="project-navigation"></div>
+        </div>
+
+        <div class="sidebar-section tag-section">
+          <div class="sidebar-section-heading">
+            <p class="sidebar-label">タグ</p>
+            <button class="project-add-button" id="open-tag-dialog" type="button" aria-label="タグを管理" aria-haspopup="dialog" title="タグを管理">⚙</button>
+          </div>
+          <button class="list-item tag-manager-link" id="open-tag-manager" type="button"><span class="nav-icon">#</span><span>タグ一覧を管理</span><span class="project-count" id="tag-count">0</span></button>
         </div>
 
         <div class="sidebar-section filter-section">
@@ -421,6 +433,29 @@
           </div>
         </footer>
       </form>
+    </dialog>
+
+    <dialog class="project-dialog tag-dialog" id="tag-dialog">
+      <div class="project-dialog-shell">
+        <header class="dialog-header">
+          <div>
+            <p class="dialog-eyebrow">TAG MANAGER</p>
+            <h2>タグ一覧を管理</h2>
+          </div>
+          <button class="dialog-close" type="button" data-close-dialog="tag-dialog" aria-label="閉じる">×</button>
+        </header>
+        <div class="tag-manager-add">
+          <input id="new-tag-name" maxlength="30" autocomplete="off" placeholder="新しいタグ名" aria-label="新しいタグ名" />
+          <button class="save-button" id="add-tag" type="button">追加</button>
+        </div>
+        <p class="project-dialog-help">名称変更や削除は、そのタグを使うすべてのタスクと保存フィルターへ反映されます。</p>
+        <div class="tag-manager-list" id="tag-manager-list"></div>
+        <p class="tag-manager-empty" id="tag-manager-empty" hidden>登録されたタグはありません。</p>
+        <footer class="dialog-footer project-dialog-footer">
+          <span></span>
+          <button class="secondary-button" type="button" data-close-dialog="tag-dialog">閉じる</button>
+        </footer>
+      </div>
     </dialog>
 
     <dialog class="import-dialog" id="csv-import-dialog">

@@ -8,9 +8,10 @@ const TRASH_KEY = "tempo-trash-v1";
 const FILTERS_KEY = "tempo-filters-v1";
 const GROUP_KEY = "tempo-group-by";
 const FAVORITES_KEY = "tempo-favorite-projects-v1";
+const TAGS_KEY = "tempo-tags-v1";
 const {
   makeId, normalizeTask, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, getDeadlineStatus, calculateDashboardStats, normalizeSavedFilter, matchesSavedFilter,
-  sortTasks, groupTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+  sortTasks, groupTasks, resolveProject, normalizeProjectName, normalizeTagName, addProject, removeProject, collectTags, renameTag, removeTag, applyTaskDetails, applyTableEdit, closeDialog,
   CSV_FIELDS, parseCSV, autoMapHeaders, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = TempoCore;
 
@@ -43,10 +44,19 @@ function loadTasks() {
 function loadProjects(tasks) {
   try {
     const saved = JSON.parse(localStorage.getItem(PROJECTS_KEY));
-    const savedProjects = Array.isArray(saved) ? saved : [];
-    return [...new Set(["未分類", "個人", "仕事", "買い物", ...savedProjects, ...tasks.map((task) => task.project)].filter(Boolean))];
+    const savedProjects = Array.isArray(saved) ? saved : ["個人", "仕事", "買い物"];
+    return [...new Set(["未分類", ...savedProjects, ...tasks.map((task) => task.project)].filter(Boolean))];
   } catch {
     return [...new Set(["未分類", "個人", "仕事", "買い物", ...tasks.map((task) => task.project)].filter(Boolean))];
+  }
+}
+
+function loadTags(tasks) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TAGS_KEY));
+    return collectTags(tasks, Array.isArray(saved) ? saved : []);
+  } catch {
+    return collectTags(tasks);
   }
 }
 
@@ -68,6 +78,7 @@ const state = {
   savedFilters: loadCollection(FILTERS_KEY, normalizeSavedFilter).filter((filter) => filter.name),
   projects: loadProjects(loadedTasks),
   favoriteProjects: loadCollection(FAVORITES_KEY, (project) => normalizeProjectName(project)).filter(Boolean),
+  tags: loadTags(loadedTasks),
   view: "today",
   activeProject: null,
   activeFilterId: null,
@@ -153,6 +164,11 @@ const elements = {
   projectForm: document.querySelector("#project-form"),
   newProjectName: document.querySelector("#new-project-name"),
   newProjectFavorite: document.querySelector("#new-project-favorite"),
+  tagDialog: document.querySelector("#tag-dialog"),
+  tagManagerList: document.querySelector("#tag-manager-list"),
+  tagManagerEmpty: document.querySelector("#tag-manager-empty"),
+  newTagName: document.querySelector("#new-tag-name"),
+  tagCount: document.querySelector("#tag-count"),
   csvFileInput: document.querySelector("#csv-file-input"),
   jsonFileInput: document.querySelector("#json-file-input"),
   csvImportDialog: document.querySelector("#csv-import-dialog"),
@@ -190,12 +206,19 @@ function saveTasks({ recordUndo = true } = {}) {
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state.tasks));
   localStorage.setItem(TRASH_KEY, JSON.stringify(state.trash));
+  state.tags = collectTags(state.tasks, state.tags);
+  localStorage.setItem(TAGS_KEY, JSON.stringify(state.tags));
   savedTaskSnapshot = nextSnapshot;
   elements.undoButton.hidden = undoStack.length === 0;
 }
 
 function saveProjects() {
   localStorage.setItem(PROJECTS_KEY, JSON.stringify(state.projects));
+}
+
+function saveTags() {
+  state.tags = collectTags(state.tasks, state.tags);
+  localStorage.setItem(TAGS_KEY, JSON.stringify(state.tags));
 }
 
 function saveFilters() {
@@ -615,7 +638,7 @@ function renderUpcomingCalendar() {
   const start = addDays(todayISO(), state.calendarOffset * 7);
   const end = addDays(start, 6);
   const tasks = sortTasks(
-    state.tasks.filter((task) => task.status !== "done" && task.due && task.due >= start && task.due <= end && matchesCommonFilters(task)),
+    state.tasks.filter((task) => task.due && task.due >= start && task.due <= end && matchesCommonFilters(task)),
     "due",
     "priority",
   );
@@ -625,7 +648,8 @@ function renderUpcomingCalendar() {
   range.className = "calendar-range";
   const startDate = new Date(`${start}T12:00:00`);
   const endDate = new Date(`${end}T12:00:00`);
-  range.innerHTML = `<strong></strong><span>${tasks.length}件の予定</span>`;
+  const completedCount = tasks.filter((task) => task.status === "done").length;
+  range.innerHTML = `<strong></strong><span>${tasks.length}件の予定${completedCount ? `（完了 ${completedCount}件）` : ""}</span>`;
   range.firstElementChild.textContent = `${new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric" }).format(startDate)} — ${new Intl.DateTimeFormat("ja-JP", { month: "long", day: "numeric" }).format(endDate)}`;
   const actions = document.createElement("div");
   actions.className = "calendar-actions";
@@ -658,11 +682,12 @@ function renderUpcomingCalendar() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "calendar-task";
+      button.classList.toggle("is-completed", task.status === "done");
       button.dataset.id = task.id;
       button.dataset.dueTone = dueTone(task.due, task.status);
       applyNamedColor(button, task.project);
       const title = document.createElement("strong");
-      title.textContent = task.title;
+      title.textContent = `${task.status === "done" ? "✓ " : ""}${task.title}`;
       const meta = document.createElement("span");
       meta.textContent = `▰ ${task.project}${task.estimate ? `  ◷ ${formatHours(task.estimate)}` : ""}`;
       button.append(title, meta);
@@ -815,7 +840,10 @@ function render() {
   const trashView = state.view === "trash";
   const upcomingView = state.view === "upcoming";
   const reportView = state.view === "report";
-  const dashboardStats = calculateDashboardStats(state.tasks, todayISO());
+  const dashboardTasks = state.activeProject
+    ? state.tasks.filter((task) => task.project === state.activeProject)
+    : state.tasks;
+  const dashboardStats = calculateDashboardStats(dashboardTasks, todayISO());
   document.body.classList.toggle("is-upcoming", upcomingView);
   const groupingAvailable = !trashView && !upcomingView && !reportView && state.mode === "list" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
   const addAllowed = !["upcoming", "completed", "trash", "report"].includes(state.view);
@@ -858,6 +886,7 @@ function render() {
   renderDeadlineSummary(dashboardStats);
   updateNavigationCounts();
   updateProjectNavigation();
+  elements.tagCount.textContent = collectTags(state.tasks, state.tags).length;
   updateFilterNavigation();
   updateHeading();
   updateProgress();
@@ -906,6 +935,15 @@ function createProjectNavigationRow(project, { favoriteSection = false, index = 
   favorite.textContent = state.favoriteProjects.includes(project) ? "★" : "☆";
   favorite.setAttribute("aria-label", state.favoriteProjects.includes(project) ? `「${project}」をお気に入りから外す` : `「${project}」をお気に入りに追加`);
   row.append(button, favorite);
+  if (!favoriteSection && project !== "未分類") {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "project-remove-button";
+    remove.dataset.removeProject = project;
+    remove.textContent = "×";
+    remove.setAttribute("aria-label", `「${project}」プロジェクトを削除`);
+    row.append(remove);
+  }
   return row;
 }
 
@@ -933,6 +971,118 @@ function toggleFavoriteProject(project) {
   saveFavoriteProjects();
   render();
   showToast(state.favoriteProjects.includes(project) ? `「${project}」をお気に入りに追加しました` : `「${project}」をお気に入りから外しました`, { showUndo: false });
+}
+
+function deleteProject(project) {
+  if (project === "未分類") return;
+  const taskCount = [...state.tasks, ...state.trash].filter((task) => task.project === project).length;
+  const message = taskCount
+    ? `「${project}」を削除しますか？\n${taskCount}件のタスクは「未分類」へ移動します。`
+    : `「${project}」を削除しますか？`;
+  if (!confirm(message)) return;
+  const result = removeProject(state.tasks, state.projects, state.favoriteProjects, state.savedFilters, project);
+  const trashResult = removeProject(state.trash, [], [], [], project);
+  if (!result.removed) return;
+  state.tasks = result.tasks;
+  state.trash = trashResult.tasks;
+  state.projects = result.projects;
+  state.favoriteProjects = result.favoriteProjects;
+  state.savedFilters = result.savedFilters;
+  if (state.activeProject === project) {
+    state.activeProject = null;
+    state.view = "all";
+  }
+  saveTasks({ recordUndo: false });
+  saveProjects();
+  saveFavoriteProjects();
+  saveFilters();
+  render();
+  const moved = result.moved + trashResult.moved;
+  showToast(moved ? `プロジェクトを削除し、${moved}件を「未分類」へ移動しました` : "プロジェクトを削除しました", { showUndo: false });
+}
+
+function renderTagManager() {
+  state.tags = collectTags(state.tasks, state.tags);
+  elements.tagManagerList.replaceChildren();
+  elements.tagManagerEmpty.hidden = state.tags.length > 0;
+  elements.tagCount.textContent = state.tags.length;
+  state.tags.forEach((tag) => {
+    const row = document.createElement("div");
+    row.className = "tag-manager-row";
+    row.dataset.tag = tag;
+    const marker = document.createElement("span");
+    marker.className = "tag-manager-marker";
+    marker.textContent = "#";
+    applyNamedColor(marker, tag);
+    const input = document.createElement("input");
+    input.value = tag;
+    input.maxLength = 30;
+    input.setAttribute("aria-label", `「${tag}」の名前`);
+    const count = document.createElement("span");
+    count.className = "tag-manager-usage";
+    count.textContent = `${state.tasks.filter((task) => task.tags.includes(tag)).length}件`;
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.className = "tag-manager-rename";
+    rename.dataset.renameTag = tag;
+    rename.textContent = "保存";
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "tag-manager-remove";
+    remove.dataset.removeTag = tag;
+    remove.textContent = "削除";
+    row.append(marker, input, count, rename, remove);
+    elements.tagManagerList.append(row);
+  });
+}
+
+function openTagManager() {
+  renderTagManager();
+  elements.newTagName.value = "";
+  elements.tagDialog.showModal();
+  requestAnimationFrame(() => elements.newTagName.focus());
+}
+
+function addManagedTag() {
+  const name = normalizeTagName(elements.newTagName.value);
+  if (!name) return;
+  if (state.tags.includes(name)) return showToast("同じタグがすでにあります", { showUndo: false });
+  state.tags.push(name);
+  saveTags();
+  elements.newTagName.value = "";
+  renderTagManager();
+  elements.newTagName.focus();
+  showToast("タグを追加しました", { showUndo: false });
+}
+
+function renameManagedTag(oldName, newName) {
+  const normalized = normalizeTagName(newName);
+  if (!normalized) return showToast("タグ名を入力してください", { showUndo: false });
+  const result = renameTag(state.tasks, state.tags, state.savedFilters, oldName, normalized);
+  const trashResult = renameTag(state.trash, [], [], oldName, normalized);
+  if (!result.changed) return;
+  state.tasks = result.tasks;
+  state.trash = trashResult.tasks;
+  state.tags = result.tags;
+  state.savedFilters = result.savedFilters;
+  saveTasks({ recordUndo: false }); saveTags(); saveFilters();
+  render(); renderTagManager();
+  showToast(result.affected ? `${result.affected}件のタスクのタグ名を変更しました` : "タグ名を変更しました", { showUndo: false });
+}
+
+function deleteManagedTag(name) {
+  const usage = [...state.tasks, ...state.trash].filter((task) => task.tags.includes(name)).length;
+  const message = usage ? `「#${name}」を削除しますか？\n${usage}件のタスクからも外れます。` : `「#${name}」を削除しますか？`;
+  if (!confirm(message)) return;
+  const result = removeTag(state.tasks, state.tags, state.savedFilters, name);
+  const trashResult = removeTag(state.trash, [], [], name);
+  state.tasks = result.tasks;
+  state.trash = trashResult.tasks;
+  state.tags = result.tags;
+  state.savedFilters = result.savedFilters;
+  saveTasks({ recordUndo: false }); saveTags(); saveFilters();
+  render(); renderTagManager();
+  showToast(result.affected ? `${result.affected}件のタスクからタグを削除しました` : "タグを削除しました", { showUndo: false });
 }
 
 function updateFilterNavigation() {
@@ -1099,6 +1249,7 @@ function currentBackupSettings() {
     trash: state.trash,
     savedFilters: state.savedFilters,
     favoriteProjects: state.favoriteProjects,
+    tags: state.tags,
   };
 }
 
@@ -1112,6 +1263,7 @@ function applyBackupSettings(settings) {
     state.favoriteProjects = settings.favoriteProjects.map(normalizeProjectName).filter(Boolean);
     saveFavoriteProjects();
   }
+  if (Array.isArray(settings.tags)) state.tags = collectTags(state.tasks, settings.tags);
   if (settings.theme === "dark" || settings.theme === "light") {
     document.body.classList.toggle("is-dark", settings.theme === "dark");
     localStorage.setItem(THEME_KEY, settings.theme);
@@ -1471,6 +1623,8 @@ elements.board.addEventListener("drop", (event) => {
 
 document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => setView(item.dataset.view)));
 function handleProjectNavigationClick(event) {
+  const removeProjectName = event.target.closest("[data-remove-project]")?.dataset.removeProject;
+  if (removeProjectName) return deleteProject(removeProjectName);
   const favoriteProject = event.target.closest("[data-favorite-project]")?.dataset.favoriteProject;
   if (favoriteProject) return toggleFavoriteProject(favoriteProject);
   const button = event.target.closest("[data-project]");
@@ -1565,6 +1719,29 @@ document.querySelector("#open-project-dialog").addEventListener("click", () => {
   elements.newProjectFavorite.checked = false;
   elements.projectDialog.showModal();
   requestAnimationFrame(() => elements.newProjectName.focus());
+});
+
+document.querySelector("#open-tag-dialog").addEventListener("click", openTagManager);
+document.querySelector("#open-tag-manager").addEventListener("click", openTagManager);
+document.querySelector("#add-tag").addEventListener("click", addManagedTag);
+elements.newTagName.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.isComposing) return;
+  event.preventDefault();
+  addManagedTag();
+});
+elements.tagManagerList.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.target.matches("input")) return;
+  event.preventDefault();
+  renameManagedTag(event.target.closest("[data-tag]").dataset.tag, event.target.value);
+});
+elements.tagManagerList.addEventListener("click", (event) => {
+  const renameName = event.target.closest("[data-rename-tag]")?.dataset.renameTag;
+  if (renameName) {
+    const row = event.target.closest("[data-tag]");
+    return renameManagedTag(renameName, row.querySelector("input").value);
+  }
+  const removeName = event.target.closest("[data-remove-tag]")?.dataset.removeTag;
+  if (removeName) deleteManagedTag(removeName);
 });
 
 function openFilterDialog(filter = null) {
@@ -1699,10 +1876,11 @@ elements.jsonFileInput.addEventListener("change", async () => {
     const backup = parseBackup(await file.text());
     if (!confirm(`現在のデータを、バックアップの${backup.tasks.length}件に置き換えますか？`)) return;
     state.tasks = backup.tasks;
-    state.projects = [...new Set(["未分類", "個人", "仕事", "買い物", ...backup.projects, ...backup.tasks.map((task) => task.project)])];
+    state.projects = [...new Set(["未分類", ...backup.projects, ...backup.tasks.map((task) => task.project)])];
     applyBackupSettings(backup.settings);
     saveTasks();
     saveProjects();
+    saveTags();
     setView("all");
     showToast(`${state.tasks.length}件をバックアップから復元しました`);
   } catch (error) {

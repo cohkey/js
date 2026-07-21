@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, getDeadlineStatus, calculateDashboardStats, normalizeSavedFilter, matchesSavedFilter,
-  sortTasks, groupTasksByProject, groupTasks, resolveProject, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+  sortTasks, groupTasksByProject, groupTasks, resolveProject, addProject, removeProject, collectTags, renameTag, removeTag, applyTaskDetails, applyTableEdit, closeDialog,
   parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = require("./task-core.js");
 
@@ -216,6 +216,44 @@ test("空のプロジェクトを追加して重複なく保持できる", () =>
   const duplicate = addProject(created.projects, "引っ越し 準備");
   assert.equal(duplicate.added, false);
   assert.deepEqual(duplicate.projects, created.projects);
+});
+
+test("プロジェクト削除でタスクを未分類へ移し関連設定も整理する", () => {
+  const tasks = [makeTask({ id: "work", project: "仕事" }), makeTask({ id: "home", project: "個人" })];
+  const result = removeProject(tasks, ["未分類", "仕事", "個人"], ["仕事"], [{ id: "f1", project: "仕事", tag: "" }], "仕事");
+  assert.equal(result.removed, true);
+  assert.equal(result.moved, 1);
+  assert.equal(result.tasks[0].project, "未分類");
+  assert.deepEqual(result.projects, ["未分類", "個人"]);
+  assert.deepEqual(result.favoriteProjects, []);
+  assert.equal(result.savedFilters[0].project, "any");
+});
+
+test("未分類プロジェクトは削除できない", () => {
+  const result = removeProject([], ["未分類"], [], [], "未分類");
+  assert.equal(result.removed, false);
+  assert.deepEqual(result.projects, ["未分類"]);
+});
+
+test("タグ一覧を集約し名称変更をタスクとフィルターへ反映する", () => {
+  const tasks = [makeTask({ id: "one", tags: ["重要", "連絡"] }), makeTask({ id: "two", tags: ["重要"] })];
+  assert.deepEqual(new Set(collectTags(tasks, ["未使用", "重要"])), new Set(["未使用", "連絡", "重要"]));
+  const result = renameTag(tasks, ["重要", "未使用"], [{ id: "f1", project: "any", tag: "重要" }], "重要", "最優先");
+  assert.equal(result.affected, 2);
+  assert.deepEqual(result.tasks[0].tags, ["最優先", "連絡"]);
+  assert.equal(result.savedFilters[0].tag, "最優先");
+  assert.ok(result.tags.includes("最優先"));
+  assert.ok(!result.tags.includes("重要"));
+});
+
+test("タグ削除を全タスクと保存フィルターへ反映する", () => {
+  const tasks = [makeTask({ id: "one", tags: ["不要", "維持"] }), makeTask({ id: "two", tags: ["不要"] })];
+  const result = removeTag(tasks, ["不要", "維持", "未使用"], [{ id: "f1", project: "any", tag: "不要" }], "不要");
+  assert.equal(result.removed, true);
+  assert.equal(result.affected, 2);
+  assert.deepEqual(result.tasks[0].tags, ["維持"]);
+  assert.equal(result.savedFilters[0].tag, "");
+  assert.ok(!result.tags.includes("不要"));
 });
 
 test("詳細追加の全項目をタスクデータへ反映できる", () => {

@@ -238,11 +238,74 @@
 
   const normalizeProjectName = (name) => String(name || "").trim().replace(/\s+/g, " ").slice(0, 30);
 
+  const normalizeTagName = (name) => String(name || "").trim().replace(/^#/, "").replace(/\s+/g, " ").slice(0, 30);
+
   function addProject(projects, rawName) {
     const name = normalizeProjectName(rawName);
     if (!name) return { name: "", projects: [...projects], added: false };
     const added = !projects.includes(name);
     return { name, projects: added ? [...projects, name] : [...projects], added };
+  }
+
+  function removeProject(tasks, projects, favoriteProjects, savedFilters, rawName) {
+    const name = normalizeProjectName(rawName);
+    if (!name || name === "未分類") return { removed: false, moved: 0, tasks: [...tasks], projects: [...projects], favoriteProjects: [...favoriteProjects], savedFilters: [...savedFilters] };
+    let moved = 0;
+    const nextTasks = tasks.map((task) => {
+      if (task.project !== name) return task;
+      moved += 1;
+      return { ...task, project: "未分類" };
+    });
+    return {
+      removed: projects.includes(name) || moved > 0,
+      moved,
+      tasks: nextTasks,
+      projects: projects.filter((project) => project !== name),
+      favoriteProjects: favoriteProjects.filter((project) => project !== name),
+      savedFilters: savedFilters.map((filter) => filter.project === name ? { ...filter, project: "any" } : filter),
+    };
+  }
+
+  function collectTags(tasks, registeredTags = []) {
+    return [...new Set([...registeredTags, ...tasks.flatMap((task) => task.tags || [])].map(normalizeTagName).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "ja"));
+  }
+
+  function renameTag(tasks, registeredTags, savedFilters, rawOldName, rawNewName) {
+    const oldName = normalizeTagName(rawOldName);
+    const newName = normalizeTagName(rawNewName);
+    if (!oldName || !newName) return { changed: false, affected: 0, tasks: [...tasks], tags: collectTags(tasks, registeredTags), savedFilters: [...savedFilters] };
+    let affected = 0;
+    const nextTasks = tasks.map((task) => {
+      if (!task.tags.includes(oldName)) return task;
+      affected += 1;
+      return { ...task, tags: [...new Set(task.tags.map((tag) => tag === oldName ? newName : tag))] };
+    });
+    return {
+      changed: oldName !== newName,
+      affected,
+      tasks: nextTasks,
+      tags: collectTags(nextTasks, registeredTags.map((tag) => tag === oldName ? newName : tag)),
+      savedFilters: savedFilters.map((filter) => filter.tag === oldName ? { ...filter, tag: newName } : filter),
+    };
+  }
+
+  function removeTag(tasks, registeredTags, savedFilters, rawName) {
+    const name = normalizeTagName(rawName);
+    if (!name) return { removed: false, affected: 0, tasks: [...tasks], tags: collectTags(tasks, registeredTags), savedFilters: [...savedFilters] };
+    let affected = 0;
+    const nextTasks = tasks.map((task) => {
+      if (!task.tags.includes(name)) return task;
+      affected += 1;
+      return { ...task, tags: task.tags.filter((tag) => tag !== name) };
+    });
+    return {
+      removed: registeredTags.includes(name) || affected > 0,
+      affected,
+      tasks: nextTasks,
+      tags: collectTags(nextTasks, registeredTags.filter((tag) => tag !== name)),
+      savedFilters: savedFilters.map((filter) => filter.tag === name ? { ...filter, tag: "" } : filter),
+    };
   }
 
   function applyTaskDetails(task, details, now = Date.now()) {
@@ -449,7 +512,7 @@
 
   return {
     makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, getDeadlineStatus, calculateDashboardStats, normalizeSavedFilter, matchesSavedFilter,
-    compareBy, sortTasks, groupTasksByProject, groupTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+    compareBy, sortTasks, groupTasksByProject, groupTasks, resolveProject, normalizeProjectName, normalizeTagName, addProject, removeProject, collectTags, renameTag, removeTag, applyTaskDetails, applyTableEdit, closeDialog,
     CSV_FIELDS, parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
   };
 });

@@ -358,6 +358,10 @@ function createListTaskCard(task) {
   return card;
 }
 
+function canGroupCurrentScope() {
+  return !state.activeFilterId && (Boolean(state.activeProject) || ["today", "all", "completed"].includes(state.view));
+}
+
 function renderList(tasks) {
   elements.list.replaceChildren();
   if (state.view === "trash") {
@@ -392,7 +396,7 @@ function renderList(tasks) {
     });
     return;
   }
-  const groupable = state.groupBy !== "none" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  const groupable = state.groupBy !== "none" && canGroupCurrentScope();
   if (!groupable) {
     tasks.forEach((task) => elements.list.append(createListTaskCard(task)));
     return;
@@ -452,25 +456,11 @@ function makeTableInput(field, value, type, label, className = "") {
 }
 
 function renderTable(tasks) {
-  const grouped = state.groupBy !== "none" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  const grouped = state.groupBy !== "none" && canGroupCurrentScope();
   const groups = grouped
     ? groupTasks(tasks, state.groupBy, getProjects())
     : [{ key: "all", label: "", tasks }];
   elements.table.replaceChildren();
-  groups.forEach((group) => {
-  const section = document.createElement("section");
-  section.className = "table-group";
-  if (grouped) {
-    const heading = document.createElement("header");
-    heading.className = "table-group-heading";
-    const title = document.createElement("h2");
-    title.textContent = group.label;
-    if (state.groupBy === "project") applyNamedColor(title, group.key);
-    const count = document.createElement("span");
-    count.textContent = `${group.tasks.length}件`;
-    heading.append(title, count);
-    section.append(heading);
-  }
   const wrapper = document.createElement("div");
   wrapper.className = "table-scroll";
   const table = document.createElement("table");
@@ -478,6 +468,24 @@ function renderTable(tasks) {
   table.innerHTML = `<thead><tr><th class="table-check-column">完了</th><th>タスク名</th><th>プロジェクト</th><th>ステータス</th><th>優先度</th><th>期限</th><th>繰り返し</th><th>タグ</th><th>工数（実績 / 見積）</th><th>サブタスク</th><th><span class="visually-hidden">操作</span></th></tr></thead>`;
   const body = document.createElement("tbody");
   const projects = getProjects();
+  groups.forEach((group) => {
+  if (grouped) {
+    const groupRow = document.createElement("tr");
+    groupRow.className = "table-group-row";
+    const groupCell = document.createElement("th");
+    groupCell.colSpan = 11;
+    const heading = document.createElement("div");
+    heading.className = "table-group-heading";
+    const title = document.createElement("strong");
+    title.textContent = group.label;
+    if (state.groupBy === "project") applyNamedColor(title, group.key);
+    const count = document.createElement("span");
+    count.textContent = `${group.tasks.length}件`;
+    heading.append(title, count);
+    groupCell.append(heading);
+    groupRow.append(groupCell);
+    body.append(groupRow);
+  }
   group.tasks.forEach((task) => {
     const row = document.createElement("tr");
     row.dataset.id = task.id;
@@ -556,11 +564,10 @@ function renderTable(tasks) {
     row.append(checkCell, titleCell, projectCell, statusCell, priorityCell, dueCell, repeatCell, tagsCell, effortCell, subtaskCell, actionCell);
     body.append(row);
   });
+  });
   table.append(body);
   wrapper.append(table);
-  section.append(wrapper);
-  elements.table.append(section);
-  });
+  elements.table.append(wrapper);
 }
 
 function renderBoard() {
@@ -869,7 +876,8 @@ function render() {
     : state.tasks;
   const dashboardStats = calculateDashboardStats(dashboardTasks, todayISO());
   document.body.classList.toggle("is-upcoming", upcomingView);
-  const groupingAvailable = !trashView && !upcomingView && !reportView && ["list", "table"].includes(state.mode) && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  document.body.classList.toggle("is-wide-layout", upcomingView || reportView || ["table", "board", "timeline"].includes(state.mode));
+  const groupingAvailable = !trashView && !upcomingView && !reportView && ["list", "table"].includes(state.mode) && canGroupCurrentScope();
   const addAllowed = !["upcoming", "completed", "trash", "report"].includes(state.view);
   elements.form.hidden = !addAllowed;
   elements.focusAdd.hidden = !addAllowed;
@@ -1159,12 +1167,15 @@ function updateHeading() {
 }
 
 function updateProgress() {
-  const todayTasks = state.tasks.filter((task) => task.due === todayISO());
-  const completed = todayTasks.filter((task) => task.status === "done").length;
-  const percent = todayTasks.length ? Math.round((completed / todayTasks.length) * 100) : 0;
+  const scopeTasks = state.activeProject
+    ? state.tasks.filter((task) => task.project === state.activeProject)
+    : state.tasks.filter((task) => task.due === todayISO());
+  const completed = scopeTasks.filter((task) => task.status === "done").length;
+  const percent = scopeTasks.length ? Math.round((completed / scopeTasks.length) * 100) : 0;
+  const label = state.activeProject ? `${state.activeProject}プロジェクトの進捗率` : "今日の達成率";
   elements.progress.style.setProperty("--progress", `${percent * 3.6}deg`);
   elements.progressValue.textContent = `${percent}%`;
-  elements.progress.setAttribute("aria-label", `今日の達成率 ${percent}%`);
+  elements.progress.setAttribute("aria-label", `${label} ${percent}%（${completed} / ${scopeTasks.length}件完了）`);
 }
 
 function showToast(message, { showUndo = undoStack.length > 0 } = {}) {

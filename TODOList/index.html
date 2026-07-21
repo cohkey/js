@@ -90,6 +90,7 @@
         <div class="sidebar-section data-section">
           <p class="sidebar-label">データ</p>
           <div class="data-actions">
+            <button type="button" id="csv-paste-button"><span>▣</span>CSV貼付</button>
             <button type="button" id="csv-import-button"><span>⇧</span>CSV取込</button>
             <button type="button" id="csv-export-button"><span>⇩</span>CSV出力</button>
             <button type="button" id="json-export-button"><span>◇</span>JSON保存</button>
@@ -147,17 +148,20 @@
           </section>
 
           <form class="quick-add" id="task-form">
-            <button type="button" class="add-symbol" tabindex="-1" aria-hidden="true">＋</button>
             <div class="quick-add-main">
-              <input
-                id="task-input"
-                type="text"
-                maxlength="120"
-                autocomplete="off"
-                placeholder="やることを入力して Enter"
-                aria-label="新しいタスク"
-                required
-              />
+              <div class="quick-add-heading"><span>QUICK ADD</span><small>Enterでも追加できます</small></div>
+              <div class="quick-input-row">
+                <span class="quick-input-marker" aria-hidden="true">✓</span>
+                <input
+                  id="task-input"
+                  type="text"
+                  maxlength="120"
+                  autocomplete="off"
+                  placeholder="次にやることは？"
+                  aria-label="新しいタスク"
+                  required
+                />
+              </div>
               <div class="quick-options" id="quick-options">
                 <label class="option-chip">
                   <span>▦</span>
@@ -470,11 +474,17 @@
 
         <div class="import-file-summary">
           <span class="import-file-icon">CSV</span>
-          <div><strong id="csv-file-name">ファイル未選択</strong><small id="csv-file-meta"></small></div>
-          <button type="button" id="change-csv-file">変更</button>
+          <div><strong id="csv-file-name">CSVを貼り付け</strong><small id="csv-file-meta">Excelの表をコピーしても使えます</small></div>
+          <button type="button" id="change-csv-file">ファイル選択</button>
         </div>
 
-        <div id="csv-import-content">
+        <section class="csv-paste-panel" id="csv-paste-panel">
+          <label for="csv-paste-input"><strong>CSV全文またはExcelの表を貼り付け</strong><small>1行目を見出しとして読み取ります。Excelからのタブ区切り貼り付けにも対応しています。</small></label>
+          <textarea id="csv-paste-input" rows="7" spellcheck="false" placeholder="タスク名,ステータス,優先度,期限,プロジェクト&#10;資料を確認,未着手,高,2026/07/30,仕事"></textarea>
+          <div><button class="save-button" id="parse-csv-paste" type="button">貼り付け内容を確認</button></div>
+        </section>
+
+        <div id="csv-import-content" hidden>
           <div class="import-option-grid">
             <label class="field">
               <span>取り込み方法</span>
@@ -516,10 +526,10 @@
 
         <p class="import-error" id="csv-import-error" role="alert"></p>
         <footer class="dialog-footer">
-          <small class="import-note">Excelでは「CSV UTF-8」で保存すると確実です。</small>
+          <small class="import-note">ファイル選択が制限されている環境では「CSV貼付」を利用できます。</small>
           <div>
             <button class="secondary-button" type="button" data-close-dialog="csv-import-dialog">キャンセル</button>
-            <button class="save-button" id="execute-csv-import" type="submit">取り込む</button>
+            <button class="save-button" id="execute-csv-import" type="submit" disabled>取り込む</button>
           </div>
         </footer>
       </form>

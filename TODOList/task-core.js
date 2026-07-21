@@ -361,6 +361,8 @@
 
   function parseCSV(text) {
     const source = String(text || "").replace(/^\uFEFF/, "");
+    const firstLine = source.split(/\r?\n/, 1)[0] || "";
+    const delimiter = firstLine.includes("\t") ? "\t" : ",";
     const records = [];
     let record = [];
     let field = "";
@@ -372,7 +374,7 @@
         else if (char === '"') quoted = false;
         else field += char;
       } else if (char === '"' && field === "") quoted = true;
-      else if (char === ",") { record.push(field); field = ""; }
+      else if (char === delimiter) { record.push(field); field = ""; }
       else if (char === "\n") { record.push(field.replace(/\r$/, "")); records.push(record); record = []; field = ""; }
       else field += char;
     }

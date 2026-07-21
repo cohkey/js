@@ -303,6 +303,13 @@ test("BOM・引用符・カンマ・改行を含むExcel CSVを解析できる",
   assert.equal(parsed.rows[1][0], '"重要"を確認');
 });
 
+test("Excelからコピーしたタブ区切りの表をCSVと同じ形式で解析できる", () => {
+  const parsed = parseCSV("タスク名\tステータス\t期限\tプロジェクト\n貼り付け,確認\t未着手\t2026/07/30\t仕事\n完了確認\t完了\t2026/07/31\t個人");
+  assert.deepEqual(parsed.headers, ["タスク名", "ステータス", "期限", "プロジェクト"]);
+  assert.equal(parsed.rows.length, 2);
+  assert.deepEqual(parsed.rows[0], ["貼り付け,確認", "未着手", "2026/07/30", "仕事"]);
+});
+
 test("日本語と英語の列名を自動で割り当てる", () => {
   const mapping = autoMapHeaders(["Title", "状態", "期限日", "リスト", "見積工数"]);
   assert.deepEqual({ title: mapping.title, status: mapping.status, due: mapping.due, project: mapping.project, estimate: mapping.estimate }, { title: 0, status: 1, due: 2, project: 3, estimate: 4 });

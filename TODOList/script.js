@@ -173,6 +173,9 @@ const elements = {
   jsonFileInput: document.querySelector("#json-file-input"),
   csvImportDialog: document.querySelector("#csv-import-dialog"),
   csvImportForm: document.querySelector("#csv-import-form"),
+  csvImportContent: document.querySelector("#csv-import-content"),
+  csvPastePanel: document.querySelector("#csv-paste-panel"),
+  csvPasteInput: document.querySelector("#csv-paste-input"),
   csvFileName: document.querySelector("#csv-file-name"),
   csvFileMeta: document.querySelector("#csv-file-meta"),
   csvMappingGrid: document.querySelector("#csv-mapping-grid"),
@@ -449,6 +452,25 @@ function makeTableInput(field, value, type, label, className = "") {
 }
 
 function renderTable(tasks) {
+  const grouped = state.groupBy !== "none" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  const groups = grouped
+    ? groupTasks(tasks, state.groupBy, getProjects())
+    : [{ key: "all", label: "", tasks }];
+  elements.table.replaceChildren();
+  groups.forEach((group) => {
+  const section = document.createElement("section");
+  section.className = "table-group";
+  if (grouped) {
+    const heading = document.createElement("header");
+    heading.className = "table-group-heading";
+    const title = document.createElement("h2");
+    title.textContent = group.label;
+    if (state.groupBy === "project") applyNamedColor(title, group.key);
+    const count = document.createElement("span");
+    count.textContent = `${group.tasks.length}件`;
+    heading.append(title, count);
+    section.append(heading);
+  }
   const wrapper = document.createElement("div");
   wrapper.className = "table-scroll";
   const table = document.createElement("table");
@@ -456,7 +478,7 @@ function renderTable(tasks) {
   table.innerHTML = `<thead><tr><th class="table-check-column">完了</th><th>タスク名</th><th>プロジェクト</th><th>ステータス</th><th>優先度</th><th>期限</th><th>繰り返し</th><th>タグ</th><th>工数（実績 / 見積）</th><th>サブタスク</th><th><span class="visually-hidden">操作</span></th></tr></thead>`;
   const body = document.createElement("tbody");
   const projects = getProjects();
-  tasks.forEach((task) => {
+  group.tasks.forEach((task) => {
     const row = document.createElement("tr");
     row.dataset.id = task.id;
     row.classList.toggle("is-completed", task.status === "done");
@@ -536,7 +558,9 @@ function renderTable(tasks) {
   });
   table.append(body);
   wrapper.append(table);
-  elements.table.replaceChildren(wrapper);
+  section.append(wrapper);
+  elements.table.append(section);
+  });
 }
 
 function renderBoard() {
@@ -845,7 +869,7 @@ function render() {
     : state.tasks;
   const dashboardStats = calculateDashboardStats(dashboardTasks, todayISO());
   document.body.classList.toggle("is-upcoming", upcomingView);
-  const groupingAvailable = !trashView && !upcomingView && !reportView && state.mode === "list" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  const groupingAvailable = !trashView && !upcomingView && !reportView && ["list", "table"].includes(state.mode) && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
   const addAllowed = !["upcoming", "completed", "trash", "report"].includes(state.view);
   elements.form.hidden = !addAllowed;
   elements.focusAdd.hidden = !addAllowed;
@@ -1224,19 +1248,47 @@ function renderCsvMapping() {
 
 async function prepareCsvImport(file) {
   try {
-    const parsed = parseCSV(await file.text());
-    if (!parsed.headers.length || !parsed.rows.length) throw new Error("データ行が見つかりませんでした");
-    state.csvParsed = parsed;
-    state.csvMapping = autoMapHeaders(parsed.headers);
-    elements.csvFileName.textContent = file.name;
-    elements.csvFileMeta.textContent = `${parsed.rows.length}行・${parsed.headers.length}列`;
-    elements.csvImportError.textContent = "";
-    renderCsvMapping();
-    if (!elements.csvImportDialog.open) elements.csvImportDialog.showModal();
+    prepareCsvText(await file.text(), file.name);
   } catch (error) {
     state.csvParsed = null;
     showToast(`CSVを読み込めませんでした：${error.message}`);
   }
+}
+
+function prepareCsvText(text, sourceName = "貼り付けたCSV") {
+  try {
+    const parsed = parseCSV(text);
+    if (!parsed.headers.length || !parsed.rows.length) throw new Error("見出しとデータ行を確認してください");
+    state.csvParsed = parsed;
+    state.csvMapping = autoMapHeaders(parsed.headers);
+    elements.csvFileName.textContent = sourceName;
+    elements.csvFileMeta.textContent = `${parsed.rows.length}行・${parsed.headers.length}列`;
+    elements.csvImportError.textContent = "";
+    elements.csvImportContent.hidden = false;
+    renderCsvMapping();
+    if (!elements.csvImportDialog.open) elements.csvImportDialog.showModal();
+    return true;
+  } catch (error) {
+    state.csvParsed = null;
+    elements.csvImportContent.hidden = true;
+    elements.executeCsvImport.disabled = true;
+    elements.csvImportError.textContent = `内容を読み取れませんでした：${error.message}`;
+    if (!elements.csvImportDialog.open) elements.csvImportDialog.showModal();
+    return false;
+  }
+}
+
+function openCsvPasteDialog() {
+  state.csvParsed = null;
+  state.csvMapping = {};
+  elements.csvPasteInput.value = "";
+  elements.csvFileName.textContent = "CSVを貼り付け";
+  elements.csvFileMeta.textContent = "Excelの表をコピーしても使えます";
+  elements.csvImportError.textContent = "";
+  elements.csvImportContent.hidden = true;
+  elements.executeCsvImport.disabled = true;
+  elements.csvImportDialog.showModal();
+  requestAnimationFrame(() => elements.csvPasteInput.focus());
 }
 
 function currentBackupSettings() {
@@ -1814,6 +1866,13 @@ elements.newProjectName.addEventListener("keydown", (event) => {
 document.querySelector("#csv-import-button").addEventListener("click", () => {
   elements.csvFileInput.value = "";
   elements.csvFileInput.click();
+});
+document.querySelector("#csv-paste-button").addEventListener("click", openCsvPasteDialog);
+document.querySelector("#parse-csv-paste").addEventListener("click", () => prepareCsvText(elements.csvPasteInput.value));
+elements.csvPasteInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || !event.ctrlKey) return;
+  event.preventDefault();
+  prepareCsvText(elements.csvPasteInput.value);
 });
 document.querySelector("#change-csv-file").addEventListener("click", () => {
   elements.csvFileInput.value = "";

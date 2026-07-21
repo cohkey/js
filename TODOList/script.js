@@ -6,9 +6,10 @@ const SORT_SECONDARY_KEY = "tempo-sort-secondary";
 const PROJECTS_KEY = "tempo-projects-v1";
 const TRASH_KEY = "tempo-trash-v1";
 const FILTERS_KEY = "tempo-filters-v1";
+const GROUP_KEY = "tempo-group-by";
 const {
   makeId, normalizeTask, createNextRecurringTask, normalizeSavedFilter, matchesSavedFilter,
-  sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+  sortTasks, groupTasksByProject, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   CSV_FIELDS, parseCSV, autoMapHeaders, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = TempoCore;
 
@@ -70,6 +71,7 @@ const state = {
   search: "",
   sortPrimary: localStorage.getItem(SORT_PRIMARY_KEY) || "due",
   sortSecondary: localStorage.getItem(SORT_SECONDARY_KEY) || "priority",
+  groupBy: localStorage.getItem(GROUP_KEY) === "none" ? "none" : "project",
   mode: localStorage.getItem(MODE_KEY) || "list",
   subtaskDraft: [],
   csvParsed: null,
@@ -88,6 +90,9 @@ const elements = {
   timeline: document.querySelector("#timeline-view"),
   template: document.querySelector("#task-template"),
   empty: document.querySelector("#empty-state"),
+  emptyTitle: document.querySelector("#empty-title"),
+  emptyMessage: document.querySelector("#empty-message"),
+  focusAdd: document.querySelector("#focus-add"),
   summary: document.querySelector("#task-summary"),
   title: document.querySelector("#view-title"),
   subtitle: document.querySelector("#view-subtitle"),
@@ -105,6 +110,8 @@ const elements = {
   undoButton: document.querySelector("#undo-button"),
   viewSwitcher: document.querySelector("#view-switcher"),
   listToolbar: document.querySelector("#list-toolbar"),
+  groupControl: document.querySelector("#group-control"),
+  groupSelect: document.querySelector("#group-select"),
   sidebar: document.querySelector("#sidebar"),
   scrim: document.querySelector("#sidebar-scrim"),
   projectNavigation: document.querySelector("#project-navigation"),
@@ -149,6 +156,10 @@ const elements = {
   filterNavigation: document.querySelector("#filter-navigation"),
   filterDialog: document.querySelector("#filter-dialog"),
   filterForm: document.querySelector("#filter-form"),
+  filterId: document.querySelector("#filter-id"),
+  filterDialogEyebrow: document.querySelector("#filter-dialog-eyebrow"),
+  filterDialogTitle: document.querySelector("#filter-dialog-title"),
+  saveFilterButton: document.querySelector("#save-filter"),
   filterName: document.querySelector("#filter-name"),
   filterProject: document.querySelector("#filter-project"),
   filterStatus: document.querySelector("#filter-status"),
@@ -244,6 +255,42 @@ function makeTagRow(tags) {
   return row;
 }
 
+function createListTaskCard(task) {
+  const card = elements.template.content.firstElementChild.cloneNode(true);
+  const completedSubtasks = task.subtasks.filter((item) => item.completed).length;
+  card.dataset.id = task.id;
+  card.dataset.project = task.project;
+  card.draggable = true;
+  card.classList.toggle("is-completed", task.status === "done");
+  card.querySelector(".task-title").textContent = task.title;
+  card.querySelector(".task-date").textContent = formatDate(task.due);
+  card.querySelector(".task-date").dataset.tone = dueTone(task.due, task.status);
+  card.querySelector(".task-date").classList.toggle("is-overdue", Boolean(task.due && task.due < todayISO() && task.status !== "done"));
+  card.querySelector(".task-project-label").textContent = task.project;
+  applyNamedColor(card.querySelector(".task-project-label"), task.project);
+  const effort = card.querySelector(".effort-label");
+  effort.textContent = task.estimate ? `${formatHours(task.actual)} / ${formatHours(task.estimate)}` : "";
+  effort.hidden = !task.estimate;
+  const subtask = card.querySelector(".subtask-label");
+  subtask.textContent = task.subtasks.length ? `${completedSubtasks}/${task.subtasks.length}` : "";
+  subtask.hidden = !task.subtasks.length;
+  const statusLabel = card.querySelector(".status-label");
+  statusLabel.textContent = { todo: "未着手", doing: "進行中", done: "完了" }[task.status];
+  statusLabel.dataset.value = task.status;
+  const priorityLabel = card.querySelector(".priority-label");
+  priorityLabel.textContent = { high: "高", normal: "通常", low: "低" }[task.priority];
+  priorityLabel.dataset.value = task.priority;
+  priorityLabel.hidden = false;
+  const repeatLabel = card.querySelector(".repeat-label");
+  repeatLabel.textContent = { daily: "毎日", weekdays: "平日", weekly: "毎週", monthly: "毎月" }[task.repeat] || "";
+  repeatLabel.hidden = task.repeat === "none";
+  card.querySelector(".star-button").textContent = task.priority === "high" ? "★" : "☆";
+  card.querySelector(".star-button").classList.toggle("is-high", task.priority === "high");
+  card.querySelector(".task-check").setAttribute("aria-label", task.status === "done" ? "未完了に戻す" : "完了にする");
+  card.querySelector(".tag-row").replaceWith(makeTagRow(task.tags));
+  return card;
+}
+
 function renderList(tasks) {
   elements.list.replaceChildren();
   if (state.view === "trash") {
@@ -278,40 +325,27 @@ function renderList(tasks) {
     });
     return;
   }
-  tasks.forEach((task) => {
-    const card = elements.template.content.firstElementChild.cloneNode(true);
-    const completedSubtasks = task.subtasks.filter((item) => item.completed).length;
-    card.dataset.id = task.id;
-    card.dataset.project = task.project;
-    card.draggable = true;
-    card.classList.toggle("is-completed", task.status === "done");
-    card.querySelector(".task-title").textContent = task.title;
-    card.querySelector(".task-date").textContent = formatDate(task.due);
-    card.querySelector(".task-date").dataset.tone = dueTone(task.due, task.status);
-    card.querySelector(".task-date").classList.toggle("is-overdue", Boolean(task.due && task.due < todayISO() && task.status !== "done"));
-    card.querySelector(".task-project-label").textContent = task.project;
-    applyNamedColor(card.querySelector(".task-project-label"), task.project);
-    const effort = card.querySelector(".effort-label");
-    effort.textContent = task.estimate ? `${formatHours(task.actual)} / ${formatHours(task.estimate)}` : "";
-    effort.hidden = !task.estimate;
-    const subtask = card.querySelector(".subtask-label");
-    subtask.textContent = task.subtasks.length ? `${completedSubtasks}/${task.subtasks.length}` : "";
-    subtask.hidden = !task.subtasks.length;
-    const statusLabel = card.querySelector(".status-label");
-    statusLabel.textContent = { todo: "未着手", doing: "進行中", done: "完了" }[task.status];
-    statusLabel.dataset.value = task.status;
-    const priorityLabel = card.querySelector(".priority-label");
-    priorityLabel.textContent = { high: "高", normal: "通常", low: "低" }[task.priority];
-    priorityLabel.dataset.value = task.priority;
-    priorityLabel.hidden = false;
-    const repeatLabel = card.querySelector(".repeat-label");
-    repeatLabel.textContent = { daily: "毎日", weekdays: "平日", weekly: "毎週", monthly: "毎月" }[task.repeat] || "";
-    repeatLabel.hidden = task.repeat === "none";
-    card.querySelector(".star-button").textContent = task.priority === "high" ? "★" : "☆";
-    card.querySelector(".star-button").classList.toggle("is-high", task.priority === "high");
-    card.querySelector(".task-check").setAttribute("aria-label", task.status === "done" ? "未完了に戻す" : "完了にする");
-    card.querySelector(".tag-row").replaceWith(makeTagRow(task.tags));
-    elements.list.append(card);
+  const groupable = state.groupBy === "project" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  if (!groupable) {
+    tasks.forEach((task) => elements.list.append(createListTaskCard(task)));
+    return;
+  }
+  groupTasksByProject(tasks, getProjects()).forEach((group) => {
+    const section = document.createElement("section");
+    section.className = "task-group";
+    section.dataset.project = group.project;
+    const heading = document.createElement("header");
+    heading.className = "task-group-heading";
+    const name = document.createElement("h2");
+    name.textContent = group.project;
+    const count = document.createElement("span");
+    count.textContent = `${group.tasks.length}件`;
+    heading.append(name, count);
+    const stack = document.createElement("div");
+    stack.className = "task-group-stack";
+    group.tasks.forEach((task) => stack.append(createListTaskCard(task)));
+    section.append(heading, stack);
+    elements.list.append(section);
   });
 }
 
@@ -535,6 +569,11 @@ function renderTimeline() {
 function render() {
   const listTasks = getVisibleTasks(false);
   const trashView = state.view === "trash";
+  const groupingAvailable = !trashView && state.mode === "list" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  const addAllowed = !["upcoming", "completed", "trash"].includes(state.view);
+  elements.form.hidden = !addAllowed;
+  elements.focusAdd.hidden = !addAllowed;
+  elements.groupControl.hidden = !groupingAvailable;
   elements.list.hidden = trashView ? false : state.mode !== "list";
   elements.table.hidden = trashView || state.mode !== "table";
   elements.board.hidden = trashView || state.mode !== "board";
@@ -547,6 +586,12 @@ function render() {
   if (!trashView && state.mode === "board") visibleCount = renderBoard();
   if (!trashView && state.mode === "timeline") visibleCount = renderTimeline();
   elements.empty.hidden = visibleCount !== 0 || state.mode === "timeline";
+  const emptyCopy = {
+    upcoming: ["近日予定はありません。", "明日以降の期限を設定したタスクがここに表示されます。"],
+    completed: ["完了したタスクはありません。", "タスクを完了するとここに成果が残ります。"],
+    trash: ["ゴミ箱は空です。", "削除したタスクがここに表示されます。"],
+  }[state.view] || ["いい流れです。", "ここに表示するタスクはありません。思いついたら上から追加しましょう。"];
+  [elements.emptyTitle.textContent, elements.emptyMessage.textContent] = emptyCopy;
   elements.summary.textContent = visibleCount ? `${visibleCount}件のタスク` : "タスクはありません";
   document.querySelectorAll(".view-mode-button").forEach((button) => button.classList.toggle("is-active", button.dataset.mode === state.mode));
   updateNavigationCounts();
@@ -616,13 +661,19 @@ function updateFilterNavigation() {
     count.className = "project-count";
     count.textContent = state.tasks.filter((task) => matchesSavedFilter(task, filter, todayISO())).length;
     button.append(count);
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "saved-filter-edit";
+    edit.dataset.editFilter = filter.id;
+    edit.textContent = "✎";
+    edit.setAttribute("aria-label", `「${filter.name}」フィルターを編集`);
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "saved-filter-remove";
     remove.dataset.removeFilter = filter.id;
     remove.textContent = "×";
     remove.setAttribute("aria-label", `「${filter.name}」フィルターを削除`);
-    row.append(button, remove);
+    row.append(button, edit, remove);
     elements.filterNavigation.append(row);
   });
 }
@@ -631,7 +682,7 @@ function updateHeading() {
   const labels = {
     today: ["今日", "今日に集中しましょう。"],
     all: ["すべてのタスク", "やることを、ひと目で。"],
-    upcoming: ["これから", "先の予定を軽やかに整えましょう。"],
+    upcoming: ["近日予定", "明日以降の期限付きタスクを確認し、先の予定を整える画面です。"],
     completed: ["完了したタスク", "積み重ねた成果です。"],
     trash: ["ゴミ箱", "削除したタスクを復元できます。"],
   };
@@ -754,6 +805,7 @@ function currentBackupSettings() {
     mode: state.mode,
     sortPrimary: state.sortPrimary,
     sortSecondary: state.sortSecondary,
+    groupBy: state.groupBy,
     trash: state.trash,
     savedFilters: state.savedFilters,
   };
@@ -782,6 +834,11 @@ function applyBackupSettings(settings) {
     state.sortSecondary = settings.sortSecondary;
     elements.sortSecondary.value = settings.sortSecondary;
     localStorage.setItem(SORT_SECONDARY_KEY, settings.sortSecondary);
+  }
+  if (["none", "project"].includes(settings.groupBy)) {
+    state.groupBy = settings.groupBy;
+    elements.groupSelect.value = settings.groupBy;
+    localStorage.setItem(GROUP_KEY, settings.groupBy);
   }
 }
 
@@ -1057,6 +1114,12 @@ elements.projectNavigation.addEventListener("click", (event) => {
   if (button) setView("all", button.dataset.project);
 });
 elements.filterNavigation.addEventListener("click", (event) => {
+  const editId = event.target.closest("[data-edit-filter]")?.dataset.editFilter;
+  if (editId) {
+    const filter = state.savedFilters.find((item) => item.id === editId);
+    if (filter) openFilterDialog(filter);
+    return;
+  }
   const removeId = event.target.closest("[data-remove-filter]")?.dataset.removeFilter;
   if (removeId) {
     const filter = state.savedFilters.find((item) => item.id === removeId);
@@ -1078,6 +1141,12 @@ document.querySelectorAll(".view-mode-button").forEach((button) => button.addEve
 elements.search.addEventListener("input", () => { state.search = elements.search.value.trim(); render(); });
 elements.sortPrimary.value = state.sortPrimary;
 elements.sortSecondary.value = state.sortSecondary;
+elements.groupSelect.value = state.groupBy;
+elements.groupSelect.addEventListener("change", () => {
+  state.groupBy = elements.groupSelect.value;
+  localStorage.setItem(GROUP_KEY, state.groupBy);
+  render();
+});
 elements.sortPrimary.addEventListener("change", () => {
   state.sortPrimary = elements.sortPrimary.value;
   localStorage.setItem(SORT_PRIMARY_KEY, state.sortPrimary);
@@ -1131,20 +1200,29 @@ document.querySelector("#open-project-dialog").addEventListener("click", () => {
   requestAnimationFrame(() => elements.newProjectName.focus());
 });
 
-document.querySelector("#open-filter-dialog").addEventListener("click", () => {
-  elements.filterName.value = "";
+function openFilterDialog(filter = null) {
+  elements.filterId.value = filter?.id || "";
+  elements.filterDialogEyebrow.textContent = filter ? "EDIT FILTER" : "SAVED FILTER";
+  elements.filterDialogTitle.textContent = filter ? "フィルターを編集" : "フィルターを保存";
+  elements.saveFilterButton.textContent = filter ? "変更を保存" : "保存する";
+  elements.filterName.value = filter?.name || "";
   elements.filterProject.replaceChildren(new Option("すべて", "any"), ...getProjects().map((project) => new Option(project, project)));
-  elements.filterStatus.value = "any";
-  elements.filterPriority.value = "any";
-  elements.filterDue.value = "any";
-  elements.filterTag.value = "";
+  elements.filterProject.value = filter?.project || "any";
+  elements.filterStatus.value = filter?.status || "any";
+  elements.filterPriority.value = filter?.priority || "any";
+  elements.filterDue.value = filter?.due || "any";
+  elements.filterTag.value = filter?.tag || "";
   elements.filterDialog.showModal();
   requestAnimationFrame(() => elements.filterName.focus());
-});
+}
+
+document.querySelector("#open-filter-dialog").addEventListener("click", () => openFilterDialog());
 
 elements.filterForm.addEventListener("submit", (event) => {
   event.preventDefault();
+  const editingId = elements.filterId.value;
   const filter = normalizeSavedFilter({
+    id: editingId || undefined,
     name: elements.filterName.value,
     project: elements.filterProject.value,
     status: elements.filterStatus.value,
@@ -1153,11 +1231,17 @@ elements.filterForm.addEventListener("submit", (event) => {
     tag: elements.filterTag.value,
   });
   if (!filter.name) return;
-  state.savedFilters.push(filter);
+  if (editingId) {
+    const index = state.savedFilters.findIndex((item) => item.id === editingId);
+    if (index < 0) return;
+    state.savedFilters[index] = filter;
+  } else {
+    state.savedFilters.push(filter);
+  }
   saveFilters();
   elements.filterDialog.close();
   setSavedFilter(filter.id);
-  showToast("フィルターを保存しました", { showUndo: false });
+  showToast(editingId ? "フィルターを更新しました" : "フィルターを保存しました", { showUndo: false });
 });
 
 elements.projectForm.addEventListener("submit", (event) => {

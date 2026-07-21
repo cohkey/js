@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   normalizeTask, nextRecurringDue, createNextRecurringTask, normalizeSavedFilter, matchesSavedFilter,
-  sortTasks, resolveProject, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+  sortTasks, groupTasksByProject, resolveProject, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = require("./task-core.js");
 
@@ -127,6 +127,12 @@ test("進行中、未着手、完了の順に並べられる", () => {
 test("プロジェクト名を第2条件に使える", () => {
   const tasks = [makeTask({ id: "work", priority: "high", project: "仕事" }), makeTask({ id: "personal", priority: "high", project: "個人" })];
   assert.deepEqual(sortTasks(tasks, "priority", "project").map((task) => task.id), ["personal", "work"]);
+});
+
+test("タスクを指定したプロジェクト順のグループへまとめる", () => {
+  const tasks = [makeTask({ id: "work", project: "仕事" }), makeTask({ id: "home", project: "個人" }), makeTask({ id: "work-2", project: "仕事" })];
+  const groups = groupTasksByProject(tasks, ["個人", "仕事"]);
+  assert.deepEqual(groups.map((group) => [group.project, group.tasks.map((task) => task.id)]), [["個人", ["home"]], ["仕事", ["work", "work-2"]]]);
 });
 
 test("工数とサブタスクを安全な形式へ整える", () => {

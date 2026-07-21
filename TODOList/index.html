@@ -38,7 +38,7 @@
             <span class="nav-count" data-count="all">0</span>
           </button>
           <button class="nav-item" data-view="upcoming">
-            <span class="nav-icon nav-icon--calendar">▦</span><span>予定</span>
+            <span class="nav-icon nav-icon--calendar">▦</span><span>近日予定</span>
             <span class="nav-count" data-count="upcoming">0</span>
           </button>
           <button class="nav-item" data-view="completed">
@@ -169,6 +169,13 @@
           <div class="list-toolbar" id="list-toolbar">
             <p id="task-summary">0件のタスク</p>
             <div class="toolbar-actions">
+              <label class="compact-select sort-control" id="group-control">
+                <span>グループ</span>
+                <select id="group-select" aria-label="グループ表示">
+                  <option value="project">プロジェクト別</option>
+                  <option value="none">グループなし</option>
+                </select>
+              </label>
               <label class="compact-select sort-control">
                 <span>第1条件</span>
                 <select id="sort-primary" aria-label="並べ替えの第1条件">
@@ -201,8 +208,8 @@
 
           <div class="empty-state" id="empty-state" hidden>
             <div class="empty-illustration"><span>✓</span></div>
-            <h2>いい流れです。</h2>
-            <p>ここに表示するタスクはありません。<br />思いついたら上から追加しましょう。</p>
+            <h2 id="empty-title">いい流れです。</h2>
+            <p id="empty-message">ここに表示するタスクはありません。<br />思いついたら上から追加しましょう。</p>
             <button class="primary-soft-button" id="focus-add" type="button">タスクを追加する</button>
           </div>
         </section>
@@ -330,11 +337,12 @@
       <form method="dialog" class="project-dialog-shell" id="filter-form">
         <header class="dialog-header">
           <div>
-            <p class="dialog-eyebrow">SAVED FILTER</p>
-            <h2>フィルターを保存</h2>
+            <p class="dialog-eyebrow" id="filter-dialog-eyebrow">SAVED FILTER</p>
+            <h2 id="filter-dialog-title">フィルターを保存</h2>
           </div>
           <button class="dialog-close" type="button" data-close-dialog="filter-dialog" aria-label="閉じる">×</button>
         </header>
+        <input type="hidden" id="filter-id" />
         <label class="field field--wide">
           <span>フィルター名</span>
           <input id="filter-name" maxlength="30" placeholder="例：今週の重要タスク" required />
@@ -351,7 +359,7 @@
           <span></span>
           <div>
             <button class="secondary-button" type="button" data-close-dialog="filter-dialog">キャンセル</button>
-            <button class="save-button" type="submit" value="default">保存する</button>
+            <button class="save-button" id="save-filter" type="submit" value="default">保存する</button>
           </div>
         </footer>
       </form>

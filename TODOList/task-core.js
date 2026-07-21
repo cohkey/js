@@ -114,6 +114,19 @@
     });
   }
 
+  function groupTasksByProject(tasks, projectOrder = []) {
+    const order = new Map(projectOrder.map((project, index) => [project, index]));
+    const groups = new Map();
+    tasks.forEach((task) => {
+      const project = task.project || "未分類";
+      if (!groups.has(project)) groups.set(project, []);
+      groups.get(project).push(task);
+    });
+    return [...groups.entries()]
+      .sort(([projectA], [projectB]) => (order.get(projectA) ?? Number.MAX_SAFE_INTEGER) - (order.get(projectB) ?? Number.MAX_SAFE_INTEGER) || projectA.localeCompare(projectB, "ja"))
+      .map(([project, groupedTasks]) => ({ project, tasks: groupedTasks }));
+  }
+
   const resolveProject = (activeProject, selectedProject) => activeProject || selectedProject || "未分類";
 
   const normalizeProjectName = (name) => String(name || "").trim().replace(/\s+/g, " ").slice(0, 30);
@@ -329,7 +342,7 @@
 
   return {
     makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, normalizeSavedFilter, matchesSavedFilter,
-    compareBy, sortTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+    compareBy, sortTasks, groupTasksByProject, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
     CSV_FIELDS, parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
   };
 });

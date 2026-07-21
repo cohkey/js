@@ -135,6 +135,30 @@ test("複合条件の保存フィルターを追加・適用・削除できる",
   assert.match(script, /localStorage\.setItem\(FILTERS_KEY/);
 });
 
+test("近日予定・完了・ゴミ箱では追加欄を隠し用途に合う空表示へ切り替える", () => {
+  assert.match(html, /data-view="upcoming">[\s\S]*近日予定/);
+  assert.match(script, /const addAllowed = !\["upcoming", "completed", "trash"\]\.includes\(state\.view\)/);
+  assert.match(script, /elements\.form\.hidden = !addAllowed/);
+  assert.match(script, /upcoming: \["近日予定はありません。"/);
+  assert.match(script, /明日以降の期限付きタスクを確認し、先の予定を整える画面です。/);
+});
+
+test("保存フィルターは既存条件を読み込んで編集保存できる", () => {
+  assert.match(html, /id="filter-id"/);
+  assert.match(html, /id="filter-dialog-title"/);
+  assert.match(script, /edit\.dataset\.editFilter = filter\.id/);
+  assert.match(script, /function openFilterDialog\(filter = null\)/);
+  assert.match(script, /state\.savedFilters\[index\] = filter/);
+});
+
+test("今日・すべて・完了をプロジェクト別にグループ表示できる", () => {
+  assert.match(html, /id="group-select"/);
+  assert.match(script, /groupTasksByProject\(tasks, getProjects\(\)\)/);
+  assert.match(script, /\["today", "all", "completed"\]\.includes\(state\.view\)/);
+  assert.match(script, /localStorage\.setItem\(GROUP_KEY, state\.groupBy\)/);
+  assert.match(css, /\.task-group-heading \{/);
+});
+
 test("ダークモードにタスクとタグ専用の配色がある", () => {
   assert.match(css, /body\.is-dark \.task-card \{/);
   assert.match(css, /body\.is-dark \.named-color \{/);

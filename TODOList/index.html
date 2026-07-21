@@ -178,6 +178,8 @@
                 <span>グループ</span>
                 <select id="group-select" aria-label="グループ表示">
                   <option value="project">プロジェクト別</option>
+                  <option value="tag">タグ別</option>
+                  <option value="priority">優先度別</option>
                   <option value="none">グループなし</option>
                 </select>
               </label>
@@ -365,7 +367,7 @@
           <label class="field"><span>プロジェクト</span><select id="filter-project"></select></label>
           <label class="field"><span>ステータス</span><select id="filter-status"><option value="any">すべて</option><option value="todo">未着手</option><option value="doing">進行中</option><option value="done">完了</option></select></label>
           <label class="field"><span>優先度</span><select id="filter-priority"><option value="any">すべて</option><option value="high">高</option><option value="normal">通常</option><option value="low">低</option></select></label>
-          <label class="field"><span>期限</span><select id="filter-due"><option value="any">すべて</option><option value="overdue">期限切れ</option><option value="today">今日</option><option value="week">今後7日</option><option value="none">期限なし</option></select></label>
+          <label class="field"><span>期限</span><select id="filter-due"><option value="any">すべて</option><option value="overdue">期限切れ</option><option value="today">今日</option><option value="tomorrow">明日</option><option value="week">今後7日</option><option value="none">期限なし</option></select></label>
           <label class="field"><span>タグ</span><input id="filter-tag" maxlength="30" placeholder="例：重要" /></label>
         </div>
         <p class="project-dialog-help">指定した条件はすべて組み合わせて絞り込みます。</p>

@@ -44,6 +44,9 @@ button { color: inherit; }
   height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 30px 20px 24px;
   border-right: 1px solid var(--line);
   background: rgba(255, 253, 248, 0.66);

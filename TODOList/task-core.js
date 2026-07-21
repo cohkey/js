@@ -86,7 +86,7 @@
   }
 
   function normalizeSavedFilter(filter) {
-    const dueValues = ["any", "overdue", "today", "week", "none"];
+    const dueValues = ["any", "overdue", "today", "tomorrow", "week", "none"];
     return {
       id: filter.id || makeId(),
       name: String(filter.name || "").trim().slice(0, 30),
@@ -106,6 +106,11 @@
     if (filter.tag && !task.tags.includes(filter.tag)) return false;
     if (filter.due === "overdue" && (!task.due || task.due >= today || task.status === "done")) return false;
     if (filter.due === "today" && task.due !== today) return false;
+    if (filter.due === "tomorrow") {
+      const tomorrow = new Date(`${today}T12:00:00`);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      if (task.due !== tomorrow.toISOString().slice(0, 10)) return false;
+    }
     if (filter.due === "week") {
       const end = new Date(`${today}T12:00:00`);
       end.setDate(end.getDate() + 7);
@@ -140,16 +145,32 @@
   }
 
   function groupTasksByProject(tasks, projectOrder = []) {
+    return groupTasks(tasks, "project", projectOrder).map((group) => ({ project: group.key, tasks: group.tasks }));
+  }
+
+  function groupTasks(tasks, groupBy, projectOrder = []) {
+    const priorityLabels = { high: "優先度：高", normal: "優先度：通常", low: "優先度：低" };
+    const priorityOrder = new Map(["high", "normal", "low"].map((value, index) => [value, index]));
     const order = new Map(projectOrder.map((project, index) => [project, index]));
     const groups = new Map();
     tasks.forEach((task) => {
-      const project = task.project || "未分類";
-      if (!groups.has(project)) groups.set(project, []);
-      groups.get(project).push(task);
+      const key = groupBy === "priority"
+        ? (task.priority || "normal")
+        : groupBy === "tag" ? (task.tags[0] || "タグなし") : (task.project || "未分類");
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(task);
     });
     return [...groups.entries()]
-      .sort(([projectA], [projectB]) => (order.get(projectA) ?? Number.MAX_SAFE_INTEGER) - (order.get(projectB) ?? Number.MAX_SAFE_INTEGER) || projectA.localeCompare(projectB, "ja"))
-      .map(([project, groupedTasks]) => ({ project, tasks: groupedTasks }));
+      .sort(([keyA], [keyB]) => {
+        if (groupBy === "priority") return (priorityOrder.get(keyA) ?? 99) - (priorityOrder.get(keyB) ?? 99);
+        if (groupBy === "tag") {
+          if (keyA === "タグなし") return 1;
+          if (keyB === "タグなし") return -1;
+          return keyA.localeCompare(keyB, "ja");
+        }
+        return (order.get(keyA) ?? Number.MAX_SAFE_INTEGER) - (order.get(keyB) ?? Number.MAX_SAFE_INTEGER) || keyA.localeCompare(keyB, "ja");
+      })
+      .map(([key, groupedTasks]) => ({ key, label: groupBy === "priority" ? priorityLabels[key] : key, tasks: groupedTasks }));
   }
 
   const resolveProject = (activeProject, selectedProject) => activeProject || selectedProject || "未分類";
@@ -367,7 +388,7 @@
 
   return {
     makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, normalizeSavedFilter, matchesSavedFilter,
-    compareBy, sortTasks, groupTasksByProject, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+    compareBy, sortTasks, groupTasksByProject, groupTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
     CSV_FIELDS, parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
   };
 });

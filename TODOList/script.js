@@ -10,7 +10,7 @@ const GROUP_KEY = "tempo-group-by";
 const FAVORITES_KEY = "tempo-favorite-projects-v1";
 const {
   makeId, normalizeTask, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, normalizeSavedFilter, matchesSavedFilter,
-  sortTasks, groupTasksByProject, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
+  sortTasks, groupTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   CSV_FIELDS, parseCSV, autoMapHeaders, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = TempoCore;
 
@@ -60,6 +60,7 @@ function loadCollection(key, mapper) {
 }
 
 const loadedTasks = loadTasks();
+const loadedGroupBy = localStorage.getItem(GROUP_KEY);
 
 const state = {
   tasks: loadedTasks,
@@ -73,7 +74,7 @@ const state = {
   search: "",
   sortPrimary: localStorage.getItem(SORT_PRIMARY_KEY) || "due",
   sortSecondary: localStorage.getItem(SORT_SECONDARY_KEY) || "priority",
-  groupBy: localStorage.getItem(GROUP_KEY) === "none" ? "none" : "project",
+  groupBy: ["project", "tag", "priority", "none"].includes(loadedGroupBy) ? loadedGroupBy : "project",
   mode: localStorage.getItem(MODE_KEY) || "list",
   subtaskDraft: [],
   csvParsed: null,
@@ -361,19 +362,20 @@ function renderList(tasks) {
     });
     return;
   }
-  const groupable = state.groupBy === "project" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  const groupable = state.groupBy !== "none" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
   if (!groupable) {
     tasks.forEach((task) => elements.list.append(createListTaskCard(task)));
     return;
   }
-  groupTasksByProject(tasks, getProjects()).forEach((group) => {
+  groupTasks(tasks, state.groupBy, getProjects()).forEach((group) => {
     const section = document.createElement("section");
     section.className = "task-group";
-    section.dataset.project = group.project;
+    section.dataset.group = group.key;
+    section.dataset.groupType = state.groupBy;
     const heading = document.createElement("header");
     heading.className = "task-group-heading";
     const name = document.createElement("h2");
-    name.textContent = group.project;
+    name.textContent = group.label;
     const count = document.createElement("span");
     count.textContent = `${group.tasks.length}件`;
     heading.append(name, count);
@@ -695,12 +697,20 @@ function render() {
   if (!upcomingView && !trashView && state.mode === "table") renderTable(listTasks);
   if (!upcomingView && !trashView && state.mode === "board") visibleCount = renderBoard();
   if (!upcomingView && !trashView && state.mode === "timeline") visibleCount = renderTimeline();
-  elements.empty.hidden = upcomingView || visibleCount !== 0 || state.mode === "timeline";
-  const emptyCopy = {
+  const emptyProject = Boolean(state.activeProject) && listTasks.length === 0;
+  const showEmpty = !upcomingView && (emptyProject || (visibleCount === 0 && state.mode !== "timeline"));
+  elements.empty.hidden = !showEmpty;
+  if (showEmpty) {
+    elements.list.hidden = true;
+    elements.table.hidden = true;
+    elements.board.hidden = true;
+    elements.timeline.hidden = true;
+  }
+  const emptyCopy = state.activeProject ? ["このプロジェクトは空です。", `上の追加欄から作成すると「${state.activeProject}」へ自動で追加されます。`] : ({
     upcoming: ["近日予定はありません。", "明日以降の期限を設定したタスクがここに表示されます。"],
     completed: ["完了したタスクはありません。", "タスクを完了するとここに成果が残ります。"],
     trash: ["ゴミ箱は空です。", "削除したタスクがここに表示されます。"],
-  }[state.view] || ["いい流れです。", "ここに表示するタスクはありません。思いついたら上から追加しましょう。"];
+  }[state.view] || ["いい流れです。", "ここに表示するタスクはありません。思いついたら上から追加しましょう。"]);
   [elements.emptyTitle.textContent, elements.emptyMessage.textContent] = emptyCopy;
   elements.summary.textContent = visibleCount ? `${visibleCount}件のタスク` : "タスクはありません";
   document.querySelectorAll(".view-mode-button").forEach((button) => button.classList.toggle("is-active", button.dataset.mode === state.mode));
@@ -977,7 +987,7 @@ function applyBackupSettings(settings) {
     elements.sortSecondary.value = settings.sortSecondary;
     localStorage.setItem(SORT_SECONDARY_KEY, settings.sortSecondary);
   }
-  if (["none", "project"].includes(settings.groupBy)) {
+  if (["none", "project", "tag", "priority"].includes(settings.groupBy)) {
     state.groupBy = settings.groupBy;
     elements.groupSelect.value = settings.groupBy;
     localStorage.setItem(GROUP_KEY, settings.groupBy);

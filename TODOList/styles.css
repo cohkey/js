@@ -433,7 +433,7 @@ body.is-dark .subtask-row { border-color: #3c3d38; }
 .table-group-heading strong { padding: 4px 8px; border: 1px solid transparent; border-radius: 7px; font-size: 12px; }
 .table-group-heading span { color: var(--muted); font-size: 9px; }
 .table-scroll { max-width: 100%; overflow-x: auto; overflow-y: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-strong); box-shadow: 0 8px 24px rgba(57,48,33,.04); }
-.task-table { width: 100%; min-width: 1290px; border-collapse: separate; border-spacing: 0; font-size: 10px; }
+.task-table { width: 100%; min-width: 1440px; border-collapse: separate; border-spacing: 0; font-size: 10px; }
 .task-table th { position: sticky; top: 0; z-index: 1; padding: 10px 9px; border-bottom: 1px solid var(--line); background: var(--surface); color: var(--muted); font-size: 9px; font-weight: 700; text-align: left; white-space: nowrap; }
 .task-table td { height: 50px; padding: 6px 7px; border-bottom: 1px solid var(--line); background: var(--surface-strong); vertical-align: middle; }
 .task-table tbody tr:last-child td { border-bottom: 0; }
@@ -458,12 +458,12 @@ body.is-dark .subtask-row { border-color: #3c3d38; }
 .table-complete-check:checked { border-color: var(--green); background: var(--green); box-shadow: 0 3px 9px rgba(90,155,112,.24); }
 .table-complete-check:checked::before { transform: scale(1); }
 .table-complete-check:focus-visible { box-shadow: 0 0 0 3px rgba(90,155,112,.2); }
-.table-title-cell { width: 250px; }
+.table-title-cell { width: 360px; min-width: 360px; }
 .table-field { height: 34px; min-width: 0; padding: 0 8px; border: 1px solid transparent; border-radius: 8px; outline: 0; background: transparent; color: var(--text); font: inherit; transition: .15s; }
 .table-field:hover { border-color: var(--line); background: var(--surface); }
 .table-field:focus { border-color: var(--accent); background: var(--surface); box-shadow: 0 0 0 3px var(--accent-soft); }
 .table-color-field { border-color: var(--value-border); background: var(--value-bg); color: var(--value-text); font-weight: 700; }
-.table-title-input { width: 100%; min-width: 210px; font-size: 11px; font-weight: 650; }
+.table-title-input { width: 100%; min-width: 330px; height: auto; min-height: 42px; padding-block: 5px; overflow: hidden; resize: none; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; font-size: 11px; font-weight: 650; }
 .table-select { width: 112px; cursor: pointer; }
 .table-date-input { width: 122px; }
 .table-tags-cell { min-width: 170px; }

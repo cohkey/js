@@ -455,6 +455,24 @@ function makeTableInput(field, value, type, label, className = "") {
   return input;
 }
 
+function makeTableTitleInput(task) {
+  const input = document.createElement("textarea");
+  input.className = "table-field table-title-input";
+  input.dataset.field = "title";
+  input.rows = 2;
+  input.value = task.title;
+  input.title = task.title;
+  input.setAttribute("aria-label", `${task.title}のタスク名`);
+  const resize = () => {
+    input.style.height = "auto";
+    const borderHeight = input.offsetHeight - input.clientHeight;
+    input.style.height = `${input.scrollHeight + borderHeight}px`;
+  };
+  input.addEventListener("input", resize);
+  requestAnimationFrame(resize);
+  return input;
+}
+
 function renderTable(tasks) {
   const grouped = state.groupBy !== "none" && canGroupCurrentScope();
   const groups = grouped
@@ -505,7 +523,7 @@ function renderTable(tasks) {
 
     const titleCell = document.createElement("td");
     titleCell.className = "table-title-cell";
-    titleCell.append(makeTableInput("title", task.title, "text", `${task.title}のタスク名`, "table-title-input"));
+    titleCell.append(makeTableTitleInput(task));
 
     const projectCell = document.createElement("td");
     const projectSelect = makeTableSelect("project", task.project, projects.map((project) => [project, project]), `${task.title}のプロジェクト`, "project");
@@ -1621,9 +1639,9 @@ elements.table.addEventListener("change", (event) => {
 });
 
 elements.table.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && event.target.matches("input.table-field")) {
+  if (event.key === "Enter" && event.target.matches("input.table-field, textarea.table-title-input")) {
     event.preventDefault();
-    event.target.blur();
+    event.target.dispatchEvent(new Event("change", { bubbles: true }));
   }
 });
 

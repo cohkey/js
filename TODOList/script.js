@@ -9,7 +9,7 @@ const FILTERS_KEY = "tempo-filters-v1";
 const GROUP_KEY = "tempo-group-by";
 const FAVORITES_KEY = "tempo-favorite-projects-v1";
 const {
-  makeId, normalizeTask, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, normalizeSavedFilter, matchesSavedFilter,
+  makeId, normalizeTask, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, getDeadlineStatus, calculateDashboardStats, normalizeSavedFilter, matchesSavedFilter,
   sortTasks, groupTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   CSV_FIELDS, parseCSV, autoMapHeaders, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = TempoCore;
@@ -93,6 +93,9 @@ const elements = {
   board: document.querySelector("#kanban-board"),
   timeline: document.querySelector("#timeline-view"),
   upcomingCalendar: document.querySelector("#upcoming-calendar"),
+  report: document.querySelector("#report-view"),
+  deadlineSummary: document.querySelector("#deadline-summary"),
+  deadlineTotal: document.querySelector("#deadline-total"),
   template: document.querySelector("#task-template"),
   empty: document.querySelector("#empty-state"),
   emptyTitle: document.querySelector("#empty-title"),
@@ -237,12 +240,12 @@ function applyNamedColor(element, value) {
 }
 
 function dueTone(due, status = "todo") {
-  if (!due) return "none";
-  if (status === "done") return "done";
-  if (due < todayISO()) return "overdue";
-  if (due === todayISO()) return "today";
-  if (due === addDays(todayISO(), 1)) return "tomorrow";
-  return "future";
+  return getDeadlineStatus({ due, status }, todayISO()).tone;
+}
+
+function formatDeadlineLabel(task) {
+  const deadline = getDeadlineStatus(task, todayISO());
+  return deadline.label || formatDate(task.due);
 }
 
 function matchesCommonFilters(task) {
@@ -291,8 +294,9 @@ function createListTaskCard(task) {
   card.dataset.project = task.project;
   card.draggable = true;
   card.classList.toggle("is-completed", task.status === "done");
+  card.dataset.dueTone = dueTone(task.due, task.status);
   card.querySelector(".task-title").textContent = task.title;
-  card.querySelector(".task-date").textContent = formatDate(task.due);
+  card.querySelector(".task-date").textContent = formatDeadlineLabel(task);
   card.querySelector(".task-date").dataset.tone = dueTone(task.due, task.status);
   card.querySelector(".task-date").classList.toggle("is-overdue", Boolean(task.due && task.due < todayISO() && task.status !== "done"));
   card.querySelector(".task-project-label").textContent = task.project;
@@ -434,6 +438,7 @@ function renderTable(tasks) {
     row.dataset.id = task.id;
     row.classList.toggle("is-completed", task.status === "done");
     row.classList.toggle("is-overdue", Boolean(task.due && task.due < todayISO() && task.status !== "done"));
+    row.dataset.dueTone = dueTone(task.due, task.status);
 
     const checkCell = document.createElement("td");
     checkCell.className = "table-check-cell";
@@ -532,6 +537,7 @@ function renderBoard() {
       const card = document.createElement("article");
       card.className = "kanban-card";
       card.dataset.id = task.id;
+      card.dataset.dueTone = dueTone(task.due, task.status);
       card.draggable = true;
       const title = document.createElement("h3");
       title.textContent = task.title;
@@ -549,7 +555,7 @@ function renderBoard() {
       project.textContent = task.project;
       applyNamedColor(project, task.project);
       const detail = document.createElement("span");
-      detail.textContent = `${formatDate(task.due)}${task.estimate ? ` · ${formatHours(task.estimate)}` : ""}`;
+      detail.textContent = `${formatDeadlineLabel(task)}${task.estimate ? ` · ${formatHours(task.estimate)}` : ""}`;
       detail.className = "kanban-card-due";
       detail.dataset.tone = dueTone(task.due, task.status);
       meta.append(project, detail);
@@ -583,6 +589,7 @@ function renderTimeline() {
       item.className = "timeline-task";
       item.dataset.id = task.id;
       item.dataset.project = task.project;
+      item.dataset.dueTone = dueTone(task.due, task.status);
       applyNamedColor(item, task.project);
       const title = document.createElement("strong");
       title.textContent = task.title;
@@ -652,6 +659,7 @@ function renderUpcomingCalendar() {
       button.type = "button";
       button.className = "calendar-task";
       button.dataset.id = task.id;
+      button.dataset.dueTone = dueTone(task.due, task.status);
       applyNamedColor(button, task.project);
       const title = document.createElement("strong");
       title.textContent = task.title;
@@ -673,32 +681,165 @@ function renderUpcomingCalendar() {
   return tasks.length;
 }
 
+function renderDeadlineSummary(stats) {
+  elements.deadlineSummary.hidden = ["completed", "trash"].includes(state.view);
+  elements.deadlineTotal.textContent = `期限あり ${stats.deadlines.total}件`;
+  Object.entries(stats.deadlines).forEach(([key, value]) => {
+    const count = elements.deadlineSummary.querySelector(`[data-deadline-count="${key}"]`);
+    if (count) count.textContent = value;
+  });
+  elements.deadlineSummary.classList.toggle("has-overdue", stats.deadlines.overdue > 0);
+}
+
+function createReportCard(title, subtitle = "") {
+  const card = document.createElement("section");
+  card.className = "report-card";
+  const heading = document.createElement("header");
+  heading.className = "report-card-heading";
+  const text = document.createElement("div");
+  const titleElement = document.createElement("h2");
+  titleElement.textContent = title;
+  text.append(titleElement);
+  if (subtitle) {
+    const note = document.createElement("p");
+    note.textContent = subtitle;
+    text.append(note);
+  }
+  heading.append(text);
+  const body = document.createElement("div");
+  body.className = "report-card-body";
+  card.append(heading, body);
+  return { card, body, heading };
+}
+
+function appendReportBars(container, items, emptyMessage) {
+  if (!items.length || items.every((item) => item.count === 0)) {
+    const empty = document.createElement("p");
+    empty.className = "report-empty";
+    empty.textContent = emptyMessage;
+    container.append(empty);
+    return;
+  }
+  const maximum = Math.max(1, ...items.map((item) => item.count));
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "report-bar-row";
+    const label = document.createElement("span");
+    label.textContent = item.name;
+    const track = document.createElement("div");
+    track.className = `report-bar-track${item.tone ? ` report-bar-track--${item.tone}` : ""}`;
+    const bar = document.createElement("span");
+    bar.style.width = `${Math.max(5, (item.count / maximum) * 100)}%`;
+    track.append(bar);
+    const value = document.createElement("strong");
+    value.textContent = `${item.count}件`;
+    row.append(label, track, value);
+    container.append(row);
+  });
+}
+
+function renderReport(stats) {
+  elements.report.replaceChildren();
+  const statusCard = createReportCard("ステータス", `全${stats.total}件・完了率${stats.completionRate}%`);
+  const statusTotal = Math.max(1, stats.total);
+  const todoEnd = (stats.status.todo / statusTotal) * 100;
+  const doingEnd = todoEnd + (stats.status.doing / statusTotal) * 100;
+  const statusVisual = document.createElement("div");
+  statusVisual.className = "status-chart";
+  const donut = document.createElement("div");
+  donut.className = "report-donut";
+  donut.style.background = stats.total
+    ? `conic-gradient(#9b978e 0 ${todoEnd}%, #4677ce ${todoEnd}% ${doingEnd}%, #5a9b70 ${doingEnd}% 100%)`
+    : "#dedad2";
+  donut.innerHTML = `<div><strong>${stats.completionRate}%</strong><span>完了</span></div>`;
+  const statusLegend = document.createElement("div");
+  statusLegend.className = "report-legend";
+  [["未着手", stats.status.todo, "todo"], ["進行中", stats.status.doing, "doing"], ["完了", stats.status.done, "done"]].forEach(([label, count, tone]) => {
+    const row = document.createElement("div");
+    row.innerHTML = `<span class="legend-dot legend-dot--${tone}"></span><span></span><strong>${count}件</strong>`;
+    row.children[1].textContent = label;
+    statusLegend.append(row);
+  });
+  statusVisual.append(donut, statusLegend);
+  statusCard.body.append(statusVisual);
+
+  const priorityCard = createReportCard("優先度", `未完了${stats.active}件の内訳`);
+  appendReportBars(priorityCard.body, [
+    { name: "高", count: stats.priority.high, tone: "high" },
+    { name: "通常", count: stats.priority.normal, tone: "normal" },
+    { name: "低", count: stats.priority.low, tone: "low" },
+  ], "未完了タスクはありません。");
+
+  const effortCard = createReportCard("工数", "登録タスクの見積と実績");
+  effortCard.body.classList.add("effort-summary-grid");
+  [["見積合計", stats.effort.estimate, "estimate"], ["実績合計", stats.effort.actual, "actual"], ["差分", stats.effort.actual - stats.effort.estimate, "difference"]].forEach(([label, value, key]) => {
+    const item = document.createElement("div");
+    item.className = `effort-summary-item effort-summary-item--${key}`;
+    const displayValue = key === "difference" && value > 0 ? `+${formatHours(value)}` : formatHours(value);
+    item.innerHTML = `<span></span><strong></strong>`;
+    item.firstElementChild.textContent = label;
+    item.lastElementChild.textContent = displayValue;
+    effortCard.body.append(item);
+  });
+
+  const projectCard = createReportCard("プロジェクト", "未完了タスクが多い順");
+  appendReportBars(projectCard.body, stats.projects.slice(0, 6), "プロジェクト別の未完了タスクはありません。");
+
+  const tagCard = createReportCard("タグ", "使用中のタグ上位");
+  appendReportBars(tagCard.body, stats.tags.slice(0, 6), "未完了タスクにタグがありません。");
+
+  const trendCard = createReportCard("完了したタスク", "直近7日間の推移");
+  trendCard.card.classList.add("report-card--wide");
+  const trend = document.createElement("div");
+  trend.className = "completion-chart";
+  const maxCompleted = Math.max(1, ...stats.completionTrend.map((item) => item.count));
+  stats.completionTrend.forEach((item) => {
+    const column = document.createElement("div");
+    column.className = "completion-column";
+    const value = document.createElement("strong");
+    value.textContent = item.count;
+    const bar = document.createElement("span");
+    bar.style.height = `${item.count ? Math.max(12, (item.count / maxCompleted) * 100) : 3}%`;
+    const date = document.createElement("small");
+    date.textContent = new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric" }).format(new Date(`${item.date}T12:00:00`));
+    column.append(value, bar, date);
+    trend.append(column);
+  });
+  trendCard.body.append(trend);
+  elements.report.append(statusCard.card, priorityCard.card, effortCard.card, projectCard.card, tagCard.card, trendCard.card);
+  return stats.total;
+}
+
 function render() {
   const listTasks = getVisibleTasks(false);
   const trashView = state.view === "trash";
   const upcomingView = state.view === "upcoming";
+  const reportView = state.view === "report";
+  const dashboardStats = calculateDashboardStats(state.tasks, todayISO());
   document.body.classList.toggle("is-upcoming", upcomingView);
-  const groupingAvailable = !trashView && !upcomingView && state.mode === "list" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
-  const addAllowed = !["upcoming", "completed", "trash"].includes(state.view);
+  const groupingAvailable = !trashView && !upcomingView && !reportView && state.mode === "list" && !state.activeProject && !state.activeFilterId && ["today", "all", "completed"].includes(state.view);
+  const addAllowed = !["upcoming", "completed", "trash", "report"].includes(state.view);
   elements.form.hidden = !addAllowed;
   elements.focusAdd.hidden = !addAllowed;
   elements.groupControl.hidden = !groupingAvailable;
-  elements.list.hidden = upcomingView || (trashView ? false : state.mode !== "list");
-  elements.table.hidden = upcomingView || trashView || state.mode !== "table";
-  elements.board.hidden = upcomingView || trashView || state.mode !== "board";
-  elements.timeline.hidden = upcomingView || trashView || state.mode !== "timeline";
+  elements.list.hidden = upcomingView || reportView || (trashView ? false : state.mode !== "list");
+  elements.table.hidden = upcomingView || reportView || trashView || state.mode !== "table";
+  elements.board.hidden = upcomingView || reportView || trashView || state.mode !== "board";
+  elements.timeline.hidden = upcomingView || reportView || trashView || state.mode !== "timeline";
   elements.upcomingCalendar.hidden = !upcomingView;
-  elements.viewSwitcher.hidden = trashView || upcomingView;
-  elements.listToolbar.hidden = trashView || upcomingView;
-  elements.progress.hidden = upcomingView;
+  elements.report.hidden = !reportView;
+  elements.viewSwitcher.hidden = trashView || upcomingView || reportView;
+  elements.listToolbar.hidden = trashView || upcomingView || reportView;
+  elements.progress.hidden = upcomingView || reportView;
   let visibleCount = listTasks.length;
   if (upcomingView) visibleCount = renderUpcomingCalendar();
+  else if (reportView) visibleCount = renderReport(dashboardStats);
   else if (trashView || state.mode === "list") renderList(listTasks);
-  if (!upcomingView && !trashView && state.mode === "table") renderTable(listTasks);
-  if (!upcomingView && !trashView && state.mode === "board") visibleCount = renderBoard();
-  if (!upcomingView && !trashView && state.mode === "timeline") visibleCount = renderTimeline();
+  if (!upcomingView && !reportView && !trashView && state.mode === "table") renderTable(listTasks);
+  if (!upcomingView && !reportView && !trashView && state.mode === "board") visibleCount = renderBoard();
+  if (!upcomingView && !reportView && !trashView && state.mode === "timeline") visibleCount = renderTimeline();
   const emptyProject = Boolean(state.activeProject) && listTasks.length === 0;
-  const showEmpty = !upcomingView && (emptyProject || (visibleCount === 0 && state.mode !== "timeline"));
+  const showEmpty = !upcomingView && !reportView && (emptyProject || (visibleCount === 0 && state.mode !== "timeline"));
   elements.empty.hidden = !showEmpty;
   if (showEmpty) {
     elements.list.hidden = true;
@@ -714,6 +855,7 @@ function render() {
   [elements.emptyTitle.textContent, elements.emptyMessage.textContent] = emptyCopy;
   elements.summary.textContent = visibleCount ? `${visibleCount}件のタスク` : "タスクはありません";
   document.querySelectorAll(".view-mode-button").forEach((button) => button.classList.toggle("is-active", button.dataset.mode === state.mode));
+  renderDeadlineSummary(dashboardStats);
   updateNavigationCounts();
   updateProjectNavigation();
   updateFilterNavigation();
@@ -832,6 +974,7 @@ function updateHeading() {
     upcoming: ["近日予定", "週ごとのカレンダーで、期限付きタスクを先まで見通せます。"],
     completed: ["完了したタスク", "積み重ねた成果です。"],
     trash: ["ゴミ箱", "削除したタスクを復元できます。"],
+    report: ["レポート", "期限・進捗・工数をまとめて振り返れます。"],
   };
   const activeFilter = state.savedFilters.find((filter) => filter.id === state.activeFilterId);
   const [title, subtitle] = activeFilter

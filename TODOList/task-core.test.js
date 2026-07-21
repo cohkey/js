@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, normalizeSavedFilter, matchesSavedFilter,
+  normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, getDeadlineStatus, calculateDashboardStats, normalizeSavedFilter, matchesSavedFilter,
   sortTasks, groupTasksByProject, groupTasks, resolveProject, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = require("./task-core.js");
@@ -54,6 +54,33 @@ test("時間計測の開始・経過表示・停止で実績時間を自動加�
   assert.equal(stopped.timerStartedAt, null);
   assert.equal(stopped.trackedSeconds, 3600);
   assert.equal(stopped.actual, 1.5);
+});
+
+test("期限までの日数をわかりやすい緊急度と文言へ変換する", () => {
+  assert.deepEqual(getDeadlineStatus(makeTask({ id: "overdue", due: "2026-07-14" }), "2026-07-16"), { tone: "overdue", days: -2, label: "期限切れ・2日超過" });
+  assert.equal(getDeadlineStatus(makeTask({ id: "today", due: "2026-07-16" }), "2026-07-16").label, "今日まで");
+  assert.equal(getDeadlineStatus(makeTask({ id: "tomorrow", due: "2026-07-17" }), "2026-07-16").label, "明日まで");
+  assert.equal(getDeadlineStatus(makeTask({ id: "week", due: "2026-07-21" }), "2026-07-16").label, "あと5日");
+  assert.equal(getDeadlineStatus(makeTask({ id: "future", due: "2026-08-01" }), "2026-07-16").tone, "future");
+});
+
+test("期限・状態・優先度・工数・プロジェクト・タグ・完了推移を集計する", () => {
+  const tasks = [
+    makeTask({ id: "overdue", due: "2026-07-15", project: "仕事", tags: ["重要"], priority: "high", estimate: 2, actual: 3 }),
+    makeTask({ id: "today", due: "2026-07-16", project: "仕事", status: "doing", tags: ["連絡"], estimate: 1, actual: 0.5 }),
+    makeTask({ id: "tomorrow", due: "2026-07-17", project: "個人", priority: "low" }),
+    makeTask({ id: "week", due: "2026-07-20", project: "個人" }),
+    makeTask({ id: "done", due: "2026-07-14", status: "done", completedAt: Date.parse("2026-07-16T12:00:00Z"), estimate: 1, actual: 1 }),
+  ];
+  const stats = calculateDashboardStats(tasks, "2026-07-16");
+  assert.deepEqual(stats.deadlines, { overdue: 1, today: 1, tomorrow: 1, week: 1, total: 4 });
+  assert.deepEqual(stats.status, { todo: 3, doing: 1, done: 1 });
+  assert.deepEqual(stats.priority, { high: 1, normal: 2, low: 1 });
+  assert.deepEqual(stats.effort, { estimate: 4, actual: 4.5 });
+  assert.deepEqual(stats.projects, [{ name: "個人", count: 2 }, { name: "仕事", count: 2 }]);
+  assert.equal(stats.tags[0].name, "重要");
+  assert.equal(stats.completionRate, 20);
+  assert.equal(stats.completionTrend.at(-1).count, 1);
 });
 
 test("保存フィルターでプロジェクト・状態・優先度・期限・タグを組み合わせる", () => {

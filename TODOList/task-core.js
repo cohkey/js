@@ -85,6 +85,67 @@
     };
   }
 
+  function addDateDays(iso, days) {
+    const date = new Date(`${iso}T12:00:00`);
+    date.setDate(date.getDate() + days);
+    return date.toISOString().slice(0, 10);
+  }
+
+  function getDeadlineStatus(task, today) {
+    if (!task?.due || task.status === "done") return { tone: task?.status === "done" ? "done" : "none", days: null, label: "" };
+    const days = Math.round((new Date(`${task.due}T12:00:00`) - new Date(`${today}T12:00:00`)) / 86400000);
+    if (days < 0) return { tone: "overdue", days, label: `期限切れ・${Math.abs(days)}日超過` };
+    if (days === 0) return { tone: "today", days, label: "今日まで" };
+    if (days === 1) return { tone: "tomorrow", days, label: "明日まで" };
+    if (days <= 7) return { tone: "week", days, label: `あと${days}日` };
+    return { tone: "future", days, label: "" };
+  }
+
+  function calculateDashboardStats(tasks, today) {
+    const active = tasks.filter((task) => task.status !== "done");
+    const deadlines = { overdue: 0, today: 0, tomorrow: 0, week: 0, total: 0 };
+    active.forEach((task) => {
+      const deadline = getDeadlineStatus(task, today);
+      if (task.due) deadlines.total += 1;
+      if (Object.hasOwn(deadlines, deadline.tone) && deadline.tone !== "total") deadlines[deadline.tone] += 1;
+    });
+    const status = { todo: 0, doing: 0, done: 0 };
+    tasks.forEach((task) => { status[task.status] = (status[task.status] || 0) + 1; });
+    const priority = { high: 0, normal: 0, low: 0 };
+    active.forEach((task) => { priority[task.priority] = (priority[task.priority] || 0) + 1; });
+    const sumCounts = (values) => [...values.entries()].map(([name, count]) => ({ name, count }));
+    const projects = new Map();
+    const tags = new Map();
+    active.forEach((task) => {
+      projects.set(task.project || "未分類", (projects.get(task.project || "未分類") || 0) + 1);
+      task.tags.forEach((tag) => tags.set(tag, (tags.get(tag) || 0) + 1));
+    });
+    const byCount = (a, b) => b.count - a.count || a.name.localeCompare(b.name, "ja");
+    const completionTrend = [];
+    for (let offset = -6; offset <= 0; offset += 1) {
+      const date = addDateDays(today, offset);
+      const count = tasks.filter((task) => {
+        if (!task.completedAt) return false;
+        const completed = new Date(task.completedAt);
+        const localCompleted = new Date(completed.getTime() - completed.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+        return localCompleted === date;
+      }).length;
+      completionTrend.push({ date, count });
+    }
+    return {
+      deadlines,
+      status,
+      priority,
+      projects: sumCounts(projects).sort(byCount),
+      tags: sumCounts(tags).sort(byCount),
+      effort: tasks.reduce((totals, task) => ({ estimate: totals.estimate + task.estimate, actual: totals.actual + task.actual }), { estimate: 0, actual: 0 }),
+      completionTrend,
+      completionRate: tasks.length ? Math.round((status.done / tasks.length) * 100) : 0,
+      total: tasks.length,
+      active: active.length,
+    };
+  }
+
   function normalizeSavedFilter(filter) {
     const dueValues = ["any", "overdue", "today", "tomorrow", "week", "none"];
     return {
@@ -387,7 +448,7 @@
   }
 
   return {
-    makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, normalizeSavedFilter, matchesSavedFilter,
+    makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, getDeadlineStatus, calculateDashboardStats, normalizeSavedFilter, matchesSavedFilter,
     compareBy, sortTasks, groupTasksByProject, groupTasks, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
     CSV_FIELDS, parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
   };

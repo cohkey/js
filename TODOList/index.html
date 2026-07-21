@@ -41,6 +41,9 @@
             <span class="nav-icon nav-icon--calendar">▦</span><span>近日予定</span>
             <span class="nav-count" data-count="upcoming">0</span>
           </button>
+          <button class="nav-item" data-view="report">
+            <span class="nav-icon nav-icon--report">▥</span><span>レポート</span>
+          </button>
           <button class="nav-item" data-view="completed">
             <span class="nav-icon nav-icon--check">✓</span><span>完了</span>
             <span class="nav-count" data-count="completed">0</span>
@@ -117,6 +120,19 @@
               <span id="progress-value">0%</span>
             </div>
           </div>
+
+          <section class="deadline-summary" id="deadline-summary" aria-label="期限サマリー">
+            <header class="deadline-summary-heading">
+              <div><span aria-hidden="true">◴</span><strong>期限サマリー</strong></div>
+              <small id="deadline-total">期限あり 0件</small>
+            </header>
+            <div class="deadline-summary-grid">
+              <div class="deadline-stat deadline-stat--overdue"><span>期限切れ</span><strong data-deadline-count="overdue">0</strong><small>要対応</small></div>
+              <div class="deadline-stat deadline-stat--today"><span>今日まで</span><strong data-deadline-count="today">0</strong><small>本日中</small></div>
+              <div class="deadline-stat deadline-stat--tomorrow"><span>明日まで</span><strong data-deadline-count="tomorrow">0</strong><small>次に確認</small></div>
+              <div class="deadline-stat deadline-stat--week"><span>今後7日</span><strong data-deadline-count="week">0</strong><small>明後日以降</small></div>
+            </div>
+          </section>
 
           <form class="quick-add" id="task-form">
             <button type="button" class="add-symbol" tabindex="-1" aria-hidden="true">＋</button>
@@ -213,6 +229,7 @@
           <div class="kanban-board" id="kanban-board" aria-live="polite" hidden></div>
           <div class="timeline-view" id="timeline-view" aria-live="polite" hidden></div>
           <div class="upcoming-calendar" id="upcoming-calendar" aria-live="polite" hidden></div>
+          <div class="report-view" id="report-view" aria-live="polite" hidden></div>
 
           <div class="empty-state" id="empty-state" hidden>
             <div class="empty-illustration"><span>✓</span></div>

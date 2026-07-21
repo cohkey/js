@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-  normalizeTask, nextRecurringDue, createNextRecurringTask, normalizeSavedFilter, matchesSavedFilter,
+  normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, normalizeSavedFilter, matchesSavedFilter,
   sortTasks, groupTasksByProject, resolveProject, addProject, applyTaskDetails, applyTableEdit, closeDialog,
   parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
 } = require("./task-core.js");
@@ -43,6 +43,17 @@ test("繰り返しタスクの次回分は未完了で工数とサブタスク�
   assert.equal(next.actual, 0);
   assert.equal(next.subtasks[0].completed, false);
   assert.notEqual(next.id, source.id);
+});
+
+test("時間計測の開始・経過表示・停止で実績時間を自動加算する", () => {
+  const source = makeTask({ id: "timer", actual: 0.5, trackedSeconds: 0 });
+  const running = startTaskTimer(source, 1000);
+  assert.equal(running.timerStartedAt, 1000);
+  assert.equal(getLiveActualHours(running, 1801000), 1);
+  const stopped = stopTaskTimer(running, 3601000);
+  assert.equal(stopped.timerStartedAt, null);
+  assert.equal(stopped.trackedSeconds, 3600);
+  assert.equal(stopped.actual, 1.5);
 });
 
 test("保存フィルターでプロジェクト・状態・優先度・期限・タグを組み合わせる", () => {

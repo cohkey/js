@@ -23,6 +23,8 @@
     completedAt: task.completedAt || null,
     repeat: ["daily", "weekdays", "weekly", "monthly"].includes(task.repeat) ? task.repeat : "none",
     deletedAt: task.deletedAt || null,
+    trackedSeconds: Math.max(0, Number(task.trackedSeconds) || 0),
+    timerStartedAt: Number(task.timerStartedAt) > 0 ? Number(task.timerStartedAt) : null,
   });
 
   function nextRecurringDue(due, repeat, today = new Date().toISOString().slice(0, 10)) {
@@ -55,9 +57,32 @@
       completed: false,
       completedAt: null,
       actual: 0,
+      trackedSeconds: 0,
+      timerStartedAt: null,
       subtasks: task.subtasks.map((item) => ({ ...item, id: makeId(), completed: false })),
       createdAt: now,
     });
+  }
+
+  function getLiveActualHours(task, now = Date.now()) {
+    const activeSeconds = task.timerStartedAt ? Math.max(0, (now - task.timerStartedAt) / 1000) : 0;
+    return Math.max(0, Number(task.actual) || 0) + (activeSeconds / 3600);
+  }
+
+  function startTaskTimer(task, now = Date.now()) {
+    if (task.timerStartedAt) return { ...task };
+    return { ...task, timerStartedAt: now };
+  }
+
+  function stopTaskTimer(task, now = Date.now()) {
+    if (!task.timerStartedAt) return { ...task };
+    const elapsedSeconds = Math.max(0, Math.round((now - task.timerStartedAt) / 1000));
+    return {
+      ...task,
+      actual: Math.max(0, Number(task.actual) || 0) + (elapsedSeconds / 3600),
+      trackedSeconds: Math.max(0, Number(task.trackedSeconds) || 0) + elapsedSeconds,
+      timerStartedAt: null,
+    };
   }
 
   function normalizeSavedFilter(filter) {
@@ -341,7 +366,7 @@
   }
 
   return {
-    makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, normalizeSavedFilter, matchesSavedFilter,
+    makeId, normalizeTask, nextRecurringDue, createNextRecurringTask, getLiveActualHours, startTaskTimer, stopTaskTimer, normalizeSavedFilter, matchesSavedFilter,
     compareBy, sortTasks, groupTasksByProject, resolveProject, normalizeProjectName, addProject, applyTaskDetails, applyTableEdit, closeDialog,
     CSV_FIELDS, parseCSV, autoMapHeaders, normalizeImportDate, csvRowsToTasks, mergeImportedTasks, tasksToCSV, createBackup, parseBackup,
   };
